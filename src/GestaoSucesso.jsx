@@ -11,7 +11,16 @@ const num=v=>Number(String(v??'').replace(',','.'))||0;
 
 function carregarLocal(){try{return JSON.parse(localStorage.getItem(LOCAL_KEY)||'[]')}catch{return []}}
 function salvarLocal(v){try{localStorage.setItem(LOCAL_KEY,JSON.stringify(v))}catch{}}
-function carregarComercial(){try{const salvo=JSON.parse(localStorage.getItem(COMERCIAL_KEY)||'null');return Array.isArray(salvo)&&salvo.length?salvo:BASE_COMERCIAL_2026}catch{return BASE_COMERCIAL_2026}}
+function carregarComercial(){
+  try{
+    const salvo=JSON.parse(localStorage.getItem(COMERCIAL_KEY)||'null');
+    const lista=Array.isArray(salvo)?salvo:[];
+    const mapa=new Map(lista.map(i=>[i.id,i]));
+    const oficiais=BASE_COMERCIAL_2026.map(base=>mapa.has(base.id)?{...base,...mapa.get(base.id),valor2026:base.valor2026}:base);
+    const ids=new Set(BASE_COMERCIAL_2026.map(i=>i.id));
+    return [...oficiais,...lista.filter(i=>!ids.has(i.id))];
+  }catch{return BASE_COMERCIAL_2026}
+}
 
 export default function GestaoSucesso(){
   const [modo,setModo]=useState('gestao');
@@ -20,6 +29,8 @@ export default function GestaoSucesso(){
   const [busca,setBusca]=useState('');
   const [filtroStatus,setFiltroStatus]=useState('todos');
   const [comercial]=useState(carregarComercial);
+  const [categoriaCatalogo,setCategoriaCatalogo]=useState('Todas');
+  const [buscaCatalogo,setBuscaCatalogo]=useState('');
   const [decisoes,setDecisoes]=useState({});
   const [fechamentos,setFechamentos]=useState({});
   const [form,setForm]=useState({responsavel:'',aluno:'',telefone:'',serie:'',categoria:'',produto:'',valor_tabela:'',desconto_solicitado:'',valor_solicitado:'',observacao_solicitacao:''});
@@ -28,6 +39,12 @@ export default function GestaoSucesso(){
 
   const categorias=useMemo(()=>[...new Set(comercial.map(i=>i.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[comercial]);
   const produtosCategoria=useMemo(()=>form.categoria?comercial.filter(i=>i.categoria===form.categoria):comercial,[comercial,form.categoria]);
+  const produtosCatalogo=useMemo(()=>comercial.filter(i=>{
+    const categoriaOk=categoriaCatalogo==='Todas'||i.categoria===categoriaCatalogo;
+    const texto=`${i.produto||''} ${i.categoria||''} ${i.observacao||''}`.toLowerCase();
+    return categoriaOk&&texto.includes(buscaCatalogo.toLowerCase());
+  }),[comercial,categoriaCatalogo,buscaCatalogo]);
+  const contagemCategoria=useMemo(()=>Object.fromEntries(categorias.map(c=>[c,comercial.filter(i=>i.categoria===c).length])),[categorias,comercial]);
 
   async function carregar(){
     setAviso('');
@@ -59,11 +76,17 @@ export default function GestaoSucesso(){
     }catch{}
   }
 
+  function aplicarProduto(p){
+    if(!p)return;
+    const valor=num(p.valor2027||p.valor2026);
+    setForm(f=>({...f,categoria:p.categoria||'',produto:p.produto||'',valor_tabela:valor,desconto_solicitado:'0',valor_solicitado:valor}));
+    setTimeout(()=>document.getElementById('gs-form-atendimento')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+  }
+
   function selecionarProduto(produtoId){
     const p=comercial.find(i=>String(i.id)===String(produtoId));
     if(!p){setForm({...form,produto:'',valor_tabela:'',valor_solicitado:''});return}
-    const valor=num(p.valor2027||p.valor2026);
-    setForm({...form,categoria:p.categoria||form.categoria,produto:p.produto,valor_tabela:valor,desconto_solicitado:'0',valor_solicitado:valor});
+    aplicarProduto(p);
   }
 
   function recalcularDesconto(valor){
@@ -114,7 +137,7 @@ export default function GestaoSucesso(){
 
   return <section className="gestaoSucessoPage">
     <div className="gsTop">
-      <div><p className="eyebrow">APP OPERACIONAL</p><h1>Gestão de Sucesso</h1><p>A equipe recebe a família, negocia com base nos valores oficiais e solicita liberação da Direção antes do fechamento.</p></div>
+      <div><p className="eyebrow">APP OPERACIONAL</p><h1>Gestão de Sucesso</h1><p>A equipe recebe a família, consulta os valores oficiais e solicita liberação da Direção antes do fechamento.</p></div>
       <div className="gsMode"><button className={modo==='gestao'?'active':''} onClick={()=>setModo('gestao')}>Equipe Gestão</button><button className={modo==='direcao'?'active':''} onClick={()=>setModo('direcao')}>Direção</button></div>
     </div>
 
@@ -127,7 +150,14 @@ export default function GestaoSucesso(){
       <article><div className="metricIcon"><CheckCircle2 size={21}/></div><div><small>Concluídos</small><strong>{cont.concluido}</strong><span>atendimentos encerrados</span></div></article>
     </div>
 
-    {modo==='gestao'&&<form className="panel gsForm" onSubmit={solicitar}>
+    {modo==='gestao'&&<>
+      <section className="panel gsCatalog">
+        <div className="panelHead gsCatalogHead"><div><h3>Consulta de mensalidades, produtos e serviços</h3><p>Valores oficiais disponíveis para apresentar à família durante o atendimento.</p></div><div className="search gsCatalogSearch"><Search size={15}/><input placeholder="Buscar produto ou serviço..." value={buscaCatalogo} onChange={e=>setBuscaCatalogo(e.target.value)}/></div></div>
+        <div className="gsCatalogTabs"><button className={categoriaCatalogo==='Todas'?'active':''} onClick={()=>setCategoriaCatalogo('Todas')}>Todas <b>{comercial.length}</b></button>{categorias.map(c=><button key={c} className={categoriaCatalogo===c?'active':''} onClick={()=>setCategoriaCatalogo(c)}>{c} <b>{contagemCategoria[c]}</b></button>)}</div>
+        <div className="gsCatalogGrid">{produtosCatalogo.map(p=><article className="gsCatalogCard" key={p.id}><div className="gsCatalogCardTop"><span>{p.categoria}</span><strong>{p.produto}</strong></div><div className="gsCatalogPrices"><div><small>Valor 2026</small><b>{money(p.valor2026)}</b></div><div className="current"><small>Valor 2027</small><b>{money(p.valor2027||p.valor2026)}</b></div></div>{p.observacao&&<p>{p.observacao}</p>}<button type="button" className="primary" onClick={()=>aplicarProduto(p)}>Usar no atendimento</button></article>)}{!produtosCatalogo.length&&<div className="empty">Nenhum produto encontrado nessa categoria.</div>}</div>
+      </section>
+
+      <form id="gs-form-atendimento" className="panel gsForm" onSubmit={solicitar}>
       <div className="panelHead"><div><h3>Novo pedido de autorização</h3><p>Preencha o atendimento e escolha um produto da tabela oficial.</p></div></div>
       <div className="gsFormGrid">
         <label>Responsável<input required value={form.responsavel} onChange={e=>setForm({...form,responsavel:e.target.value})}/></label>
@@ -142,7 +172,7 @@ export default function GestaoSucesso(){
         <label className="gsWide">Observações da equipe<textarea rows="3" value={form.observacao_solicitacao} onChange={e=>setForm({...form,observacao_solicitacao:e.target.value})} placeholder="Motivo do desconto, condição combinada, observações da família..."/></label>
       </div>
       <button className="primary gsSend" type="submit"><Send size={17}/>Solicitar autorização à Direção</button>
-    </form>}
+    </form></>}
 
     <div className="panel gsQueue">
       <div className="panelHead gsQueueHead"><div><h3>{modo==='direcao'?'Fila para decisão da Direção':'Atendimentos da Gestão'}</h3><p>{modo==='direcao'?'A Direção pode ajustar o valor e registrar a decisão.':'A Gestão só consegue concluir depois da autorização.'}</p></div><div className="gsFilters"><div className="search"><Search size={15}/><input placeholder="Buscar aluno, responsável..." value={busca} onChange={e=>setBusca(e.target.value)}/></div><select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)}><option value="todos">Todos</option><option value="aguardando">Aguardando</option><option value="autorizado">Autorizados</option><option value="negado">Negados</option><option value="concluido">Concluídos</option></select></div></div>
