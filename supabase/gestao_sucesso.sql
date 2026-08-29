@@ -6,6 +6,10 @@ create table if not exists public.autorizacoes_gestao (
   aluno text not null,
   telefone text,
   serie text,
+  produto text,
+  categoria text,
+  valor_tabela numeric(12,2),
+  desconto_solicitado numeric(5,2) default 0,
   valor_solicitado numeric(12,2) not null default 0,
   observacao_solicitacao text,
   status text not null default 'aguardando' check (status in ('aguardando','autorizado','negado','concluido')),
@@ -20,6 +24,12 @@ create table if not exists public.autorizacoes_gestao (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Compatibilidade para bancos onde a tabela já foi criada pela primeira versão.
+alter table public.autorizacoes_gestao add column if not exists produto text;
+alter table public.autorizacoes_gestao add column if not exists categoria text;
+alter table public.autorizacoes_gestao add column if not exists valor_tabela numeric(12,2);
+alter table public.autorizacoes_gestao add column if not exists desconto_solicitado numeric(5,2) default 0;
 
 create index if not exists idx_autorizacoes_gestao_status on public.autorizacoes_gestao(status);
 create index if not exists idx_autorizacoes_gestao_created_at on public.autorizacoes_gestao(created_at desc);
@@ -102,6 +112,9 @@ begin
     jsonb_build_object(
       'status_anterior',case when TG_OP='UPDATE' then old.status else null end,
       'status_novo',new.status,
+      'produto',new.produto,
+      'valor_tabela',new.valor_tabela,
+      'desconto_solicitado',new.desconto_solicitado,
       'valor_solicitado',new.valor_solicitado,
       'valor_autorizado',new.valor_autorizado
     )
