@@ -1,5 +1,5 @@
 -- MAJESTIC 2027 — SINCRONIZAÇÃO ENTRE APP EXECUTIVO E APP DA EQUIPE
--- Execute uma vez no SQL Editor do Supabase depois de criar os usuários em Authentication.
+-- Execute no SQL Editor do Supabase depois de criar as tabelas do CRM.
 
 -- Garante funções de autorização baseadas no usuário autenticado.
 create or replace function public.is_direcao()
@@ -47,8 +47,11 @@ create policy "staff ve atendimentos gestao" on public.gestao_atendimentos for s
 create policy "staff cria atendimentos gestao" on public.gestao_atendimentos for insert to authenticated with check (public.is_staff() and funcionario_id = auth.uid());
 create policy "staff atualiza atendimentos gestao" on public.gestao_atendimentos for update to authenticated using (public.is_staff()) with check (public.is_staff());
 
--- Views executivas respeitam o usuário/RLS.
-create or replace view public.vw_gestao_funil
+-- Recria as views para evitar conflito de nomes/ordem de colunas de versões anteriores.
+drop view if exists public.vw_gestao_atendimentos_abertos;
+drop view if exists public.vw_gestao_funil;
+
+create view public.vw_gestao_funil
 with (security_invoker = true)
 as
 select
@@ -60,15 +63,26 @@ select
   round((count(*) filter (where matriculado = true)::numeric / nullif(count(*),0))*100,2) as conversao_percentual
 from public.gestao_clientes;
 
-create or replace view public.vw_gestao_atendimentos_abertos
+create view public.vw_gestao_atendimentos_abertos
 with (security_invoker = true)
 as
 select
-  a.id,a.cliente_id,c.nome_aluno,c.nome_responsavel,c.telefone,c.tipo_aluno,c.status_funil,
-  a.funcionario_id,a.funcionario_nome,a.status,a.etapa,a.iniciado_at,a.updated_at
+  a.id,
+  a.cliente_id,
+  c.nome_aluno,
+  c.nome_responsavel,
+  c.telefone,
+  c.tipo_aluno,
+  c.status_funil,
+  a.funcionario_id,
+  a.funcionario_nome,
+  a.status,
+  a.etapa,
+  a.iniciado_at,
+  a.updated_at
 from public.gestao_atendimentos a
 join public.gestao_clientes c on c.id = a.cliente_id
-where a.status='em_andamento';
+where a.status = 'em_andamento';
 
 -- Adiciona tabelas ao Realtime quando ainda não estiverem publicadas.
 do $$
