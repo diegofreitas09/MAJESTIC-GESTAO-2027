@@ -7,8 +7,11 @@ const fallback = { interessados: 0, atendimentos: 0, visitas: 0, propostas: 0, m
 const n = (v) => Number(v || 0);
 
 function App() {
+  const [pagina, setPagina] = useState('dashboard');
   const [resumo, setResumo] = useState(fallback);
+  const [interessados, setInteressados] = useState([]);
   const [atendimentos, setAtendimentos] = useState([]);
+  const [matriculas, setMatriculas] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [perguntas, setPerguntas] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -17,82 +20,64 @@ function App() {
   async function carregarDados() {
     setCarregando(true); setErro('');
     try {
-      const [rResumo, rAtend, rProdutos, rPerguntas] = await Promise.all([
+      const consultas = await Promise.allSettled([
         supabase.from('vw_resumo_executivo').select('*').maybeSingle(),
-        supabase.from('atendimentos').select('*').order('created_at', { ascending: false }).limit(50),
-        supabase.from('produtos_valores').select('*').order('created_at', { ascending: false }),
-        supabase.from('perguntas_direcao').select('*').order('created_at', { ascending: false }).limit(20),
+        supabase.from('interessados').select('*').limit(100),
+        supabase.from('atendimentos').select('*').limit(100),
+        supabase.from('matriculas').select('*').limit(100),
+        supabase.from('produtos').select('*').limit(100),
+        supabase.from('pergunta_direção').select('*').limit(100),
       ]);
-      const falhas = [rResumo, rAtend, rProdutos, rPerguntas].filter(x => x.error);
-      if (falhas.length === 4) throw falhas[0].error;
-      if (rResumo.data) setResumo({ ...fallback, ...rResumo.data });
-      setAtendimentos(rAtend.data || []);
-      setProdutos(rProdutos.data || []);
-      setPerguntas(rPerguntas.data || []);
-      if (falhas.length) setErro('Parte dos módulos ainda aguarda permissão/dados no Supabase.');
-    } catch (e) {
-      setErro(e?.message || 'Não foi possível consultar o Supabase.');
-    } finally {
-      setCarregando(false);
-    }
+      const dados = consultas.map(x => x.status === 'fulfilled' ? x.value : { data:null, error:x.reason });
+      const [rResumo,rInteressados,rAtend,rMatriculas,rProdutos,rPerguntas] = dados;
+      if (rResumo?.data) setResumo({ ...fallback, ...rResumo.data });
+      setInteressados(rInteressados?.data || []);
+      setAtendimentos(rAtend?.data || []);
+      setMatriculas(rMatriculas?.data || []);
+      setProdutos(rProdutos?.data || []);
+      setPerguntas(rPerguntas?.data || []);
+      const falhas = dados.filter(x => x?.error);
+      if (falhas.length) setErro(`Conexão ativa. ${falhas.length} módulo(s) ainda precisam de ajuste de tabela/permissão no Supabase.`);
+    } catch (e) { setErro(e?.message || 'Não foi possível consultar o Supabase.'); }
+    finally { setCarregando(false); }
   }
 
   useEffect(() => { carregarDados(); }, []);
 
-  const metrics = useMemo(() => [
-    ['Procuras', n(resumo.total_procuras ?? resumo.interessados), Users],
-    ['Atendimentos', n(resumo.total_atendimentos ?? resumo.atendimentos), GraduationCap],
-    ['Propostas', n(resumo.total_propostas ?? resumo.propostas), CircleDollarSign],
-    ['Matrículas', n(resumo.total_matriculas ?? resumo.matriculas), UserPlus],
-  ], [resumo]);
-
   const funil = useMemo(() => [
-    { nome: 'Procuras', total: n(resumo.total_procuras ?? resumo.interessados) },
-    { nome: 'Atendimentos', total: n(resumo.total_atendimentos ?? resumo.atendimentos) },
-    { nome: 'Visitas', total: n(resumo.total_visitas ?? resumo.visitas) },
-    { nome: 'Propostas', total: n(resumo.total_propostas ?? resumo.propostas) },
-    { nome: 'Matrículas', total: n(resumo.total_matriculas ?? resumo.matriculas) },
-  ], [resumo]);
-
-  const maxFunil = Math.max(...funil.map(x => x.total), 1);
-  const conversao = n(resumo.conversao ?? resumo.conversao_geral ?? (funil[0].total ? (funil[4].total / funil[0].total * 100).toFixed(1) : 0));
+    { nome:'Procuras', total:n(resumo.total_procuras ?? interessados.length) },
+    { nome:'Atendimentos', total:n(resumo.total_em_atendimento ?? resumo.total_atendimentos ?? atendimentos.length) },
+    { nome:'Visitas', total:n(resumo.visitas ?? resumo.total_visitas) },
+    { nome:'Propostas', total:n(resumo.propostas ?? resumo.total_propostas) },
+    { nome:'Matrículas', total:n(resumo.matriculas ?? resumo.total_matriculas ?? matriculas.length) },
+  ], [resumo, interessados, atendimentos, matriculas]);
+  const maxFunil = Math.max(...funil.map(x=>x.total),1);
+  const conversao = n(resumo.conversao_percentual ?? resumo.conversao ?? (funil[0].total ? funil[4].total/funil[0].total*100 : 0));
   const pendentes = perguntas.filter(p => !p.resposta && p.status !== 'respondida').length;
+  const metrics = [['Procuras',funil[0].total,Users],['Atendimentos',funil[1].total,GraduationCap],['Propostas',funil[3].total,CircleDollarSign],['Matrículas',funil[4].total,UserPlus]];
 
-  function baixarPDF() {
-    gerarRelatorioExecutivoPDF({
-      periodo: 'Matrículas 2027',
-      resumo: { interessados: funil[0].total, atendimentos: funil[1].total, visitas: funil[2].total, propostas: funil[3].total, matriculas: funil[4].total, conversao },
-      funil, atendimentos, produtos, perguntas
-    });
-  }
+  function baixarPDF(){ gerarRelatorioExecutivoPDF({periodo:'Matrículas 2027',resumo:{interessados:funil[0].total,atendimentos:funil[1].total,visitas:funil[2].total,propostas:funil[3].total,matriculas:funil[4].total,conversao},funil,atendimentos,produtos,perguntas}); }
+  const navegar = p => setPagina(p);
+
+  const Lista = ({titulo,subtitulo,dados,vazio}) => <section className="panel recent"><div className="panelHead"><div><h3>{titulo}</h3><p>{subtitulo}</p></div><div className="search"><Search size={16}/> {dados.length} registros</div></div>{dados.map((x,i)=><div className="row" key={x.id||i}><b>{String(x.nome_aluno||x.nome||x.responsavel||x.aluno||titulo).slice(0,2).toUpperCase()}</b><div><strong>{x.nome_aluno||x.nome||x.responsavel||x.aluno||x.produto||'Registro'}</strong><small>{x.nome_responsavel||x.telefone||x.descricao||x.email||x['e-mail']||'Cadastrado no sistema'}</small></div><span className="status proposal">{x.etapa||x.status||x.situacao||'REGISTRADO'}</span></div>)}{!dados.length&&<div className="empty">{vazio}</div>}</section>;
 
   return <div className="shell">
-    <aside className="sidebar">
-      <div className="brand"><span className="brandM">M</span><div><strong>Majestic</strong><small>GESTÃO 2027</small></div></div>
-      <nav>
-        <a className="active"><LayoutDashboard size={19}/> Dashboard</a>
-        <a><Users size={19}/> Procuras e interessados</a>
-        <a><GraduationCap size={19}/> Atendimentos</a>
-        <a><UserPlus size={19}/> Matrículas</a>
-        <a><Package size={19}/> Produtos e valores</a>
-        <a><MessageCircleQuestion size={19}/> Central da Direção {pendentes > 0 && <b>{pendentes}</b>}</a>
-        <a onClick={baixarPDF}><ChartNoAxesCombined size={19}/> Relatórios</a>
-      </nav>
-      <div className="profile"><div className="avatar">D</div><div><strong>Direção</strong><small>Administrador</small></div></div>
-    </aside>
-    <main>
-      <header><div><p className="eyebrow">PAINEL EXECUTIVO • DADOS DO SUPABASE</p><h1>Majestic Gestão 2027</h1><p>A Direção acompanha toda a operação e mantém a governança dos valores oficiais.</p></div><div className="headerActions"><button className="icon" onClick={carregarDados} title="Atualizar"><RefreshCw size={20}/></button><button className="primary" onClick={baixarPDF}><Download size={18}/> Baixar relatório PDF</button></div></header>
-      {erro && <div className="alerta">{erro}</div>}
-      <section className="campaign"><div><span>MATRÍCULAS 2027</span><h2>Direção informa. Gestão executa. Sistema registra.</h2><p>{carregando ? 'Atualizando indicadores...' : 'Indicadores atualizados a partir do banco de dados.'}</p></div><div className="conversion"><small>CONVERSÃO GERAL</small><strong>{conversao.toLocaleString('pt-BR')}%</strong><em>{funil[4].total} matrículas</em></div></section>
-      <section className="metrics">{metrics.map(([label,value,Icon]) => <article key={label}><div className="metricIcon"><Icon size={21}/></div><div><small>{label}</small><strong>{carregando ? '...' : value}</strong><span>registrados no sistema</span></div></article>)}</section>
-      <section className="grid">
-        <article className="panel"><div className="panelHead"><div><h3>Funil de matrículas</h3><p>Da procura até a matrícula efetivada</p></div><button onClick={carregarDados}>Atualizar</button></div><div className="funnel">{funil.map(item => <div className="stage" key={item.nome}><div><span>{item.nome}</span><strong>{item.total}</strong></div><div className="bar"><i style={{width:`${item.total/maxFunil*100}%`}}/></div></div>)}</div></article>
-        <article className="panel questions"><div className="panelHead"><div><h3>Central da Direção</h3><p>Orientações e decisões oficiais</p></div><span className="badge">{pendentes} pendentes</span></div>{perguntas.slice(0,3).map((p,i)=><div className="question" key={p.id || i}><span>{p.status || 'PENDENTE'}</span><strong>{p.assunto || p.pergunta || 'Solicitação da equipe'}</strong><p>{p.pergunta || p.descricao || ''}</p><small>{p.resposta ? `Direção: ${p.resposta}` : 'Aguardando orientação da Direção'}</small></div>)}{!perguntas.length && <div className="empty">Nenhuma pergunta registrada.</div>}</article>
-      </section>
-      <section className="panel recent"><div className="panelHead"><div><h3>Atendimentos recentes</h3><p>Histórico operacional da equipe</p></div><div className="search"><Search size={16}/> {atendimentos.length} registros carregados</div></div>{atendimentos.slice(0,6).map((a,i)=><div className="row" key={a.id || i}><b>{String(a.responsavel || a.aluno || 'AT').slice(0,2).toUpperCase()}</b><div><strong>{a.responsavel || a.aluno || 'Atendimento'}</strong><small>{a.aluno || a.canal || 'Família interessada'}</small></div><span className="status proposal">{a.resultado || a.status || 'REGISTRADO'}</span><small>{a.created_at ? new Date(a.created_at).toLocaleDateString('pt-BR') : ''}</small></div>)}{!atendimentos.length && <div className="empty">Ainda não há atendimentos registrados no banco.</div>}</section>
-      <section className="panel recent"><div className="panelHead"><div><h3>Valores oficiais da Direção</h3><p>Referência única para a equipe comercial — alterações dependem das políticas de acesso do Supabase.</p></div><span className="badge">{produtos.length} itens</span></div>{produtos.slice(0,8).map((p,i)=><div className="row" key={p.id || i}><b>R$</b><div><strong>{p.nome || p.produto || 'Produto'}</strong><small>{p.segmento || p.descricao || 'Valor oficial'}</small></div><span className="status success">{new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n(p.valor))}</span><small>{p.publicado === false ? 'Interno' : 'Oficial'}</small></div>)}{!produtos.length && <div className="empty">Nenhum valor oficial cadastrado.</div>}</section>
-    </main>
-  </div>;
+    <aside className="sidebar"><div className="brand"><span className="brandM">M</span><div><strong>Majestic</strong><small>GESTÃO 2027</small></div></div><nav>
+      <a className={pagina==='dashboard'?'active':''} onClick={()=>navegar('dashboard')}><LayoutDashboard size={19}/> Dashboard</a>
+      <a className={pagina==='interessados'?'active':''} onClick={()=>navegar('interessados')}><Users size={19}/> Procuras e interessados</a>
+      <a className={pagina==='atendimentos'?'active':''} onClick={()=>navegar('atendimentos')}><GraduationCap size={19}/> Atendimentos</a>
+      <a className={pagina==='matriculas'?'active':''} onClick={()=>navegar('matriculas')}><UserPlus size={19}/> Matrículas</a>
+      <a className={pagina==='produtos'?'active':''} onClick={()=>navegar('produtos')}><Package size={19}/> Produtos e valores</a>
+      <a className={pagina==='direcao'?'active':''} onClick={()=>navegar('direcao')}><MessageCircleQuestion size={19}/> Central da Direção {pendentes>0&&<b>{pendentes}</b>}</a>
+      <a onClick={baixarPDF}><ChartNoAxesCombined size={19}/> Relatórios</a>
+    </nav><div className="profile"><div className="avatar">D</div><div><strong>Direção</strong><small>Administrador</small></div></div></aside>
+    <main><header><div><p className="eyebrow">PAINEL EXECUTIVO • DADOS DO SUPABASE</p><h1>Majestic Gestão 2027</h1><p>A Direção acompanha toda a operação e mantém a governança dos valores oficiais.</p></div><div className="headerActions"><button className="icon" onClick={carregarDados}><RefreshCw size={20}/></button><button className="primary" onClick={baixarPDF}><Download size={18}/> Baixar relatório PDF</button></div></header>{erro&&<div className="alerta">{erro}</div>}
+    {pagina==='dashboard'&&<><section className="campaign"><div><span>MATRÍCULAS 2027</span><h2>Direção informa. Gestão executa. Sistema registra.</h2><p>{carregando?'Atualizando indicadores...':'Indicadores atualizados a partir do banco de dados.'}</p></div><div className="conversion"><small>CONVERSÃO GERAL</small><strong>{conversao.toLocaleString('pt-BR',{maximumFractionDigits:2})}%</strong><em>{funil[4].total} matrículas</em></div></section><section className="metrics">{metrics.map(([label,value,Icon])=><article key={label}><div className="metricIcon"><Icon size={21}/></div><div><small>{label}</small><strong>{carregando?'...':value}</strong><span>registrados no sistema</span></div></article>)}</section><section className="grid"><article className="panel"><div className="panelHead"><div><h3>Funil de matrículas</h3><p>Da procura até a matrícula efetivada</p></div><button onClick={carregarDados}>Atualizar</button></div><div className="funnel">{funil.map(item=><div className="stage" key={item.nome}><div><span>{item.nome}</span><strong>{item.total}</strong></div><div className="bar"><i style={{width:`${item.total/maxFunil*100}%`}}/></div></div>)}</div></article><article className="panel questions"><div className="panelHead"><div><h3>Central da Direção</h3><p>Orientações e decisões oficiais</p></div><span className="badge">{pendentes} pendentes</span></div>{!perguntas.length&&<div className="empty">Nenhuma pergunta registrada.</div>}</article></section></>}
+    {pagina==='interessados'&&<Lista titulo="Procuras e interessados" subtitulo="Famílias e alunos cadastrados" dados={interessados} vazio="Ainda não há interessados cadastrados."/>}
+    {pagina==='atendimentos'&&<Lista titulo="Atendimentos" subtitulo="Histórico operacional da equipe" dados={atendimentos} vazio="Ainda não há atendimentos cadastrados."/>}
+    {pagina==='matriculas'&&<Lista titulo="Matrículas" subtitulo="Matrículas registradas para 2027" dados={matriculas} vazio="Ainda não há matrículas cadastradas."/>}
+    {pagina==='produtos'&&<Lista titulo="Produtos e valores" subtitulo="Valores oficiais definidos pela Direção" dados={produtos} vazio="Nenhum produto cadastrado."/>}
+    {pagina==='direcao'&&<Lista titulo="Central da Direção" subtitulo="Perguntas, orientações e decisões oficiais" dados={perguntas} vazio="Nenhuma pergunta registrada."/>}
+    </main></div>;
 }
-
 export default App;
