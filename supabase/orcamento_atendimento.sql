@@ -7,7 +7,12 @@ alter table public.gestao_atendimentos
 alter table public.gestao_atendimentos
   add column if not exists valor_orcamento numeric(12,2) not null default 0;
 
-create or replace view public.vw_gestao_atendimentos_detalhado
+-- A view já existe com outra ordem de colunas. PostgreSQL não permite
+-- create or replace quando a nova definição muda a posição/nome das colunas.
+-- Por isso, recriamos a view de forma segura.
+drop view if exists public.vw_gestao_atendimentos_detalhado;
+
+create view public.vw_gestao_atendimentos_detalhado
 with (security_invoker = true)
 as
 select
