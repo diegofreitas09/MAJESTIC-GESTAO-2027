@@ -1,0 +1,29 @@
+import { useMemo, useState } from 'react';
+import { Plus, Save, Trash2 } from 'lucide-react';
+import { BASE_COMERCIAL_2026 } from './lib/comercial2026';
+
+const moeda = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const KEY='majestic_comercial_2027';
+
+export default function ProdutosValores(){
+  const [itens,setItens]=useState(()=>{try{const salvo=localStorage.getItem(KEY);return salvo?JSON.parse(salvo):BASE_COMERCIAL_2026}catch{return BASE_COMERCIAL_2026}});
+  const [novo,setNovo]=useState({categoria:'Outros',produto:'',valor2026:'',reajuste:'',valor2027:'',observacao:''});
+  const salvar=t=>{setItens(t);localStorage.setItem(KEY,JSON.stringify(t));};
+  const atualizar=(id,campo,valor)=>{const t=itens.map(i=>{if(i.id!==id)return i;let prox={...i,[campo]:valor};if(campo==='reajuste'){const r=Number(valor||0);prox.valor2027=Number((Number(i.valor2026||0)*(1+r/100)).toFixed(2));}if(campo==='valor2026'){prox.valor2026=Number(valor||0);prox.valor2027=Number((Number(valor||0)*(1+Number(i.reajuste||0)/100)).toFixed(2));}if(campo==='valor2027')prox.valor2027=Number(valor||0);return prox});salvar(t)};
+  const adicionar=()=>{if(!novo.produto.trim())return;const v26=Number(String(novo.valor2026).replace(',','.'))||0;const r=Number(String(novo.reajuste).replace(',','.'))||0;const v27=novo.valor2027!==''?Number(String(novo.valor2027).replace(',','.')):Number((v26*(1+r/100)).toFixed(2));salvar([...itens,{id:`p-${Date.now()}`,categoria:novo.categoria||'Outros',produto:novo.produto,valor2026:v26,reajuste:r,valor2027:v27,observacao:novo.observacao||''}]);setNovo({categoria:'Outros',produto:'',valor2026:'',reajuste:'',valor2027:'',observacao:''})};
+  const excluir=id=>salvar(itens.filter(i=>i.id!==id));
+  const max=Math.max(...itens.flatMap(i=>[Number(i.valor2026||0),Number(i.valor2027||0)]),1);
+  const media=useMemo(()=>itens.length?itens.reduce((s,i)=>s+Number(i.reajuste||0),0)/itens.length:0,[itens]);
+  const maior=useMemo(()=>Math.max(...itens.map(i=>Number(i.reajuste||0)),0),[itens]);
+  return <div className="comercialPage">
+    <section className="commercialSummary">
+      <article><small>Produtos cadastrados</small><strong>{itens.length}</strong></article>
+      <article><small>Reajuste médio</small><strong>{media.toFixed(2)}%</strong></article>
+      <article><small>Maior reajuste</small><strong>{maior.toFixed(2)}%</strong></article>
+      <article><small>Base histórica</small><strong>2026 fixa</strong></article>
+    </section>
+    <section className="panel commercialChart"><div className="panelHead"><div><h3>Comparativo 2026 x 2027</h3><p>O gráfico atualiza automaticamente conforme os reajustes.</p></div><div className="legend"><span><i className="dot2026"/>2026</span><span><i className="dot2027"/>2027</span></div></div><div className="chartRows">{itens.map(i=><div className="chartItem" key={i.id}><div className="chartLabel"><strong>{i.produto}</strong><small>{i.categoria}</small></div><div className="bars"><div className="barLine"><span>2026</span><div><i className="y2026" style={{width:`${Number(i.valor2026||0)/max*100}%`}}/></div><b>{moeda(i.valor2026)}</b></div><div className="barLine"><span>2027</span><div><i className="y2027" style={{width:`${Number(i.valor2027||0)/max*100}%`}}/></div><b>{moeda(i.valor2027)}</b></div></div></div>)}</div></section>
+    <section className="panel commercialTable"><div className="panelHead"><div><h3>Tabela comercial editável</h3><p>2026 fica como histórico; reajuste e 2027 podem ser ajustados.</p></div><span className="saveHint"><Save size={15}/> Salvo neste navegador</span></div><div className="tableWrap"><table><thead><tr><th>Produto / Plano</th><th>Categoria</th><th>Valor 2026</th><th>Reajuste %</th><th>Valor 2027</th><th>Observação</th><th></th></tr></thead><tbody>{itens.map(i=><tr key={i.id}><td><strong>{i.produto}</strong></td><td>{i.categoria}</td><td className="locked">{moeda(i.valor2026)}</td><td><input type="number" step="0.01" value={i.reajuste} onChange={e=>atualizar(i.id,'reajuste',e.target.value)}/></td><td><input type="number" step="0.01" value={i.valor2027} onChange={e=>atualizar(i.id,'valor2027',e.target.value)}/></td><td><input value={i.observacao||''} onChange={e=>atualizar(i.id,'observacao',e.target.value)}/></td><td><button className="dangerIcon" onClick={()=>excluir(i.id)}><Trash2 size={16}/></button></td></tr>)}</tbody></table></div></section>
+    <section className="panel addProduct"><div className="panelHead"><div><h3>Adicionar produto</h3><p>Inclua fardamento, material, taxa, alimentação ou qualquer outro item.</p></div></div><div className="formGrid"><label>Produto<input value={novo.produto} onChange={e=>setNovo({...novo,produto:e.target.value})} placeholder="Ex.: Camisa oficial"/></label><label>Categoria<select value={novo.categoria} onChange={e=>setNovo({...novo,categoria:e.target.value})}><option>Outros</option><option>Mensalidade</option><option>Berçário</option><option>Tempo Integral</option><option>Material</option><option>Fardamento</option><option>Taxa</option><option>Alimentação</option></select></label><label>Valor 2026<input type="number" step="0.01" value={novo.valor2026} onChange={e=>setNovo({...novo,valor2026:e.target.value})}/></label><label>Reajuste %<input type="number" step="0.01" value={novo.reajuste} onChange={e=>setNovo({...novo,reajuste:e.target.value})}/></label><label>Valor 2027<input type="number" step="0.01" value={novo.valor2027} onChange={e=>setNovo({...novo,valor2027:e.target.value})} placeholder="Opcional"/></label><label className="wide">Observação<input value={novo.observacao} onChange={e=>setNovo({...novo,observacao:e.target.value})} placeholder="Condição, vencimento, desconto etc."/></label></div><button className="primary addBtn" onClick={adicionar}><Plus size={17}/> Adicionar produto</button></section>
+  </div>;
+}
