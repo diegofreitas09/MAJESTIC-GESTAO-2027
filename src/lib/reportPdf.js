@@ -1,12 +1,13 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import majesticLogo from '../../majestic-logo.png';
 
 const money = value => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value||0));
 const txt = (...v) => v.find(x=>x!==undefined&&x!==null&&String(x).trim()!=='') ?? '';
 
 async function carregarLogo(){
   try{
-    const r=await fetch('/majestic-logo.png',{cache:'force-cache'});
+    const r=await fetch(majesticLogo,{cache:'force-cache'});
     if(!r.ok)return null;
     const blob=await r.blob();
     return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob)});
