@@ -2,6 +2,22 @@
   command = "npm run build"
   publish = "dist"
 
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/sw-equipe.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Clear-Site-Data = "\"cache\""
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
