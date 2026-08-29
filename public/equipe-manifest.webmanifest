@@ -3,7 +3,7 @@
   "short_name": "Majestic Atendimento",
   "description": "App da equipe de atendimento e Gestão de Sucesso do Colégio Majestic.",
   "start_url": "/equipe.html",
-  "scope": "/",
+  "scope": "/equipe.html",
   "display": "standalone",
   "background_color": "#f5f8fd",
   "theme_color": "#102a56",
