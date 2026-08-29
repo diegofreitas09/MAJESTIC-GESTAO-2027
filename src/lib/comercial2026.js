@@ -10,5 +10,26 @@ export const BASE_COMERCIAL_2026 = [
   { id:'bercario-integral', categoria:'Berçário', produto:'Berçário · 7h às 17h', valor2026:1679.92, reajuste:0, valor2027:1679.92, observacao:'Com pontualidade. Sem pontualidade 2026: R$ 1.910,00.' },
   { id:'bercario-estendido', categoria:'Berçário', produto:'Berçário · 7h às 18h', valor2026:1801.36, reajuste:0, valor2027:1801.36, observacao:'Integral estendido. Sem pontualidade 2026: R$ 1.960,00.' },
   { id:'bercario-semi', categoria:'Berçário', produto:'Berçário · Semi-integral', valor2026:1120.00, reajuste:0, valor2027:1120.00, observacao:'7h às 13h ou 13h às 18h. Sem pontualidade 2026: R$ 1.320,00.' },
-  { id:'bercario-manha', categoria:'Berçário', produto:'Berçário · 7h às 11h', valor2026:854.00, reajuste:0, valor2027:854.00, observacao:'Sem almoço. Sem pontualidade 2026: R$ 985,00.' }
+  { id:'bercario-manha', categoria:'Berçário', produto:'Berçário · 7h às 11h', valor2026:854.00, reajuste:0, valor2027:854.00, observacao:'Sem almoço. Sem pontualidade 2026: R$ 985,00.' },
+
+  { id:'farda-educacao-fisica', categoria:'Fardamento', produto:'Farda Educação Física', valor2026:131.00, reajuste:0, valor2027:131.00, observacao:'Composição 2026: blusa R$ 60,50 + short R$ 70,50.' },
+  { id:'farda-sti', categoria:'Fardamento', produto:'Farda STI', valor2026:121.00, reajuste:0, valor2027:121.00, observacao:'Composição 2026: blusa R$ 60,50 + short R$ 60,50.' },
+  { id:'farda-fundamental', categoria:'Fardamento', produto:'Farda Fundamental', valor2026:198.00, reajuste:0, valor2027:198.00, observacao:'Composição 2026: blusa R$ 88,00 + calça R$ 110,00.' },
+  { id:'farda-educacao-infantil', categoria:'Fardamento', produto:'Farda Educação Infantil', valor2026:170.93, reajuste:0, valor2027:170.93, observacao:'Composição 2026: blusa R$ 75,15 + short R$ 95,80.' },
+  { id:'plano-utilizacao', categoria:'Material/Serviço', produto:'Plano de Utilização', valor2026:105.00, reajuste:0, valor2027:105.00, observacao:'Valor informado na tabela interna de Serviços/Materiais 2026.' },
+  { id:'blocos-atividades', categoria:'Material Didático', produto:'Blocos de Atividades · Berçário e Infantil I', valor2026:320.00, reajuste:0, valor2027:320.00, observacao:'2026: R$ 320,00 no Pix ou débito; crédito em 2x de R$ 160,00.' },
+  { id:'diaria-sti', categoria:'Tempo Integral', produto:'Diária STI', valor2026:180.00, reajuste:0, valor2027:180.00, observacao:'Valor de diária avulsa 2026.' },
+  { id:'meia-diaria', categoria:'Tempo Integral', produto:'Meia Diária', valor2026:110.00, reajuste:0, valor2027:110.00, observacao:'Valor de meia diária 2026.' },
+  { id:'lanche-integral-avulso', categoria:'Alimentação', produto:'Lanche Integral Avulso', valor2026:13.00, reajuste:0, valor2027:13.00, observacao:'Valor unitário 2026.' },
+  { id:'almoco-jantar-avulso', categoria:'Alimentação', produto:'Almoço ou Jantar Avulso', valor2026:20.00, reajuste:0, valor2027:20.00, observacao:'Valor unitário 2026.' },
+  { id:'almoco-jantar-cuidados-avulso', categoria:'Alimentação', produto:'Almoço ou Jantar (com cuidados) Avulso', valor2026:49.00, reajuste:0, valor2027:49.00, observacao:'Valor unitário 2026 para serviço com cuidados.' },
+  { id:'lanche-mensal-nutricional', categoria:'Alimentação', produto:'Lanche Mensal c/ Acompanhamento Nutricional', valor2026:230.00, reajuste:0, valor2027:230.00, observacao:'Plano mensal 2026 com acompanhamento nutricional.' },
+  { id:'almoco-mensal-nutricional', categoria:'Alimentação', produto:'Almoço Mensal c/ Acompanhamento Nutricional', valor2026:292.00, reajuste:0, valor2027:292.00, observacao:'Plano mensal 2026 com acompanhamento nutricional.' },
+  { id:'jantar-mensal-nutricional', categoria:'Alimentação', produto:'Jantar Mensal c/ Acompanhamento Nutricional', valor2026:265.00, reajuste:0, valor2027:265.00, observacao:'Plano mensal 2026 com acompanhamento nutricional.' },
+  { id:'day-care-mensal', categoria:'Day Care', produto:'Adicional Day Care · Mensal', valor2026:128.00, reajuste:0, valor2027:128.00, observacao:'Adicional mensal 2026.' },
+  { id:'day-care-hora', categoria:'Day Care', produto:'Adicional Day Care · Por Hora', valor2026:20.00, reajuste:0, valor2027:20.00, observacao:'Adicional por hora 2026.' },
+  { id:'esporte-futsal', categoria:'Esportes', produto:'Futsal', valor2026:80.00, reajuste:0, valor2027:80.00, observacao:'Esporte 2026.' },
+  { id:'esporte-ballet', categoria:'Esportes', produto:'Ballet', valor2026:80.00, reajuste:0, valor2027:80.00, observacao:'Esporte 2026.' },
+  { id:'esporte-capoeira', categoria:'Esportes', produto:'Capoeira', valor2026:80.00, reajuste:0, valor2027:80.00, observacao:'Esporte 2026.' },
+  { id:'esporte-flamengo', categoria:'Esportes', produto:'Escolinha do Flamengo', valor2026:150.00, reajuste:0, valor2027:150.00, observacao:'Esporte 2026.' }
 ];
