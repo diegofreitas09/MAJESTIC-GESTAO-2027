@@ -1,8 +1,21 @@
+// Service worker legado desativado por segurança operacional.
+// A versão anterior tinha escopo raiz e podia interceptar também o app da Direção.
 const CACHE='majestic-atendimento-v1';
-const ESSENCIAIS=['/equipe.html','/equipe-manifest.webmanifest','/equipe-icon.svg'];
-self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ESSENCIAIS)).then(()=>self.skipWaiting()))});
-self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
-self.addEventListener('fetch',event=>{
-  if(event.request.method!=='GET')return;
-  event.respondWith(fetch(event.request).then(response=>{const clone=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,clone));return response}).catch(()=>caches.match(event.request).then(r=>r||caches.match('/equipe.html'))));
+
+self.addEventListener('install',event=>{
+  self.skipWaiting();
 });
+
+self.addEventListener('activate',event=>{
+  event.waitUntil((async()=>{
+    try{await caches.delete(CACHE)}catch{}
+    try{await self.registration.unregister()}catch{}
+    try{
+      const clientes=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+      clientes.forEach(cliente=>cliente.navigate(cliente.url).catch(()=>{}));
+    }catch{}
+  })());
+});
+
+// Não intercepta mais nenhuma requisição.
+self.addEventListener('fetch',()=>{});
