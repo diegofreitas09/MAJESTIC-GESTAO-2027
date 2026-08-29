@@ -4,6 +4,7 @@ import App from './App.jsx';
 import './styles.css';
 import './gestao-sucesso-catalogo.css';
 import './auth-notifications.css';
+import './crm-executivo.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
