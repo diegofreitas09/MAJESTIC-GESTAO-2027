@@ -1,0 +1,13 @@
+{
+  "name": "Majestic Atendimento 2027",
+  "short_name": "Majestic Atendimento",
+  "description": "App da equipe de atendimento e Gestão de Sucesso do Colégio Majestic.",
+  "start_url": "/equipe.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f8fd",
+  "theme_color": "#102a56",
+  "icons": [
+    {"src":"/equipe-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}
