@@ -1,21 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, LockKeyhole, Send, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, LockKeyhole, Search, Send, ShieldCheck, XCircle } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { BASE_COMERCIAL_2026 } from './lib/comercial2026';
 
 const LOCAL_KEY='majestic_gestao_sucesso';
+const COMERCIAL_KEY='majestic_comercial_2027';
 const STATUS={aguardando:'Aguardando Direção',autorizado:'Autorizado',negado:'Negado',concluido:'Concluído'};
 const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
+const num=v=>Number(String(v??'').replace(',','.'))||0;
 
 function carregarLocal(){try{return JSON.parse(localStorage.getItem(LOCAL_KEY)||'[]')}catch{return []}}
 function salvarLocal(v){try{localStorage.setItem(LOCAL_KEY,JSON.stringify(v))}catch{}}
+function carregarComercial(){try{const salvo=JSON.parse(localStorage.getItem(COMERCIAL_KEY)||'null');return Array.isArray(salvo)&&salvo.length?salvo:BASE_COMERCIAL_2026}catch{return BASE_COMERCIAL_2026}}
 
 export default function GestaoSucesso(){
   const [modo,setModo]=useState('gestao');
   const [registros,setRegistros]=useState([]);
   const [aviso,setAviso]=useState('');
-  const [form,setForm]=useState({responsavel:'',aluno:'',telefone:'',serie:'',valor_solicitado:'',observacao_solicitacao:''});
+  const [busca,setBusca]=useState('');
+  const [filtroStatus,setFiltroStatus]=useState('todos');
+  const [comercial]=useState(carregarComercial);
+  const [decisoes,setDecisoes]=useState({});
+  const [fechamentos,setFechamentos]=useState({});
+  const [form,setForm]=useState({responsavel:'',aluno:'',telefone:'',serie:'',categoria:'',produto:'',valor_tabela:'',desconto_solicitado:'',valor_solicitado:'',observacao_solicitacao:''});
 
   useEffect(()=>{carregar()},[]);
+
+  const categorias=useMemo(()=>[...new Set(comercial.map(i=>i.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[comercial]);
+  const produtosCategoria=useMemo(()=>form.categoria?comercial.filter(i=>i.categoria===form.categoria):comercial,[comercial,form.categoria]);
 
   async function carregar(){
     setAviso('');
@@ -27,7 +39,7 @@ export default function GestaoSucesso(){
     }catch{
       const local=carregarLocal();
       setRegistros(local);
-      setAviso('Modo local ativo. Para sincronizar entre Gestão e Direção, aplique a migration do Supabase.');
+      setAviso('Modo local ativo. Para sincronizar entre Gestão e Direção, aplique o SQL do módulo Gestão de Sucesso no Supabase.');
     }
   }
 
@@ -47,45 +59,107 @@ export default function GestaoSucesso(){
     }catch{}
   }
 
+  function selecionarProduto(produtoId){
+    const p=comercial.find(i=>String(i.id)===String(produtoId));
+    if(!p){setForm({...form,produto:'',valor_tabela:'',valor_solicitado:''});return}
+    const valor=num(p.valor2027||p.valor2026);
+    setForm({...form,categoria:p.categoria||form.categoria,produto:p.produto,valor_tabela:valor,desconto_solicitado:'0',valor_solicitado:valor});
+  }
+
+  function recalcularDesconto(valor){
+    const desc=Math.min(Math.max(num(valor),0),100);
+    const tabela=num(form.valor_tabela);
+    const solicitado=Number((tabela*(1-desc/100)).toFixed(2));
+    setForm({...form,desconto_solicitado:valor,valor_solicitado:solicitado});
+  }
+
   async function solicitar(e){
     e.preventDefault();
-    if(!form.responsavel||!form.aluno)return;
-    const r={id:`local-${Date.now()}`,responsavel:form.responsavel,aluno:form.aluno,telefone:form.telefone,serie:form.serie,valor_solicitado:Number(String(form.valor_solicitado).replace(',','.'))||0,observacao_solicitacao:form.observacao_solicitacao,status:'aguardando',valor_autorizado:null,observacao_direcao:'',observacao_final:'',created_at:new Date().toISOString()};
+    if(!form.responsavel.trim()||!form.aluno.trim()||!form.produto.trim())return;
+    const r={id:`local-${Date.now()}`,responsavel:form.responsavel.trim(),aluno:form.aluno.trim(),telefone:form.telefone.trim(),serie:form.serie.trim(),produto:form.produto,categoria:form.categoria,valor_tabela:num(form.valor_tabela),desconto_solicitado:num(form.desconto_solicitado),valor_solicitado:num(form.valor_solicitado),observacao_solicitacao:form.observacao_solicitacao.trim(),status:'aguardando',valor_autorizado:null,observacao_direcao:'',observacao_final:'',created_at:new Date().toISOString()};
     await persistir([r,...registros],r);
-    setForm({responsavel:'',aluno:'',telefone:'',serie:'',valor_solicitado:'',observacao_solicitacao:''});
+    setForm({responsavel:'',aluno:'',telefone:'',serie:'',categoria:'',produto:'',valor_tabela:'',desconto_solicitado:'',valor_solicitado:'',observacao_solicitacao:''});
   }
+
+  function atualizarDecisao(id,campo,valor){setDecisoes(d=>({...d,[id]:{valor:String(d[id]?.valor??registros.find(x=>x.id===id)?.valor_solicitado??''),observacao:d[id]?.observacao||'',[campo]:valor}}))}
 
   async function decidir(id,status){
     const atual=registros.find(x=>x.id===id);if(!atual)return;
-    const valor=prompt(status==='autorizado'?'Valor autorizado pela Direção:':'Observação da Direção:',status==='autorizado'?String(atual.valor_solicitado||''):'');
-    if(valor===null)return;
-    const obs=status==='autorizado'?prompt('Observação da Direção (opcional):','')||'':valor;
-    const alterado={...atual,status,valor_autorizado:status==='autorizado'?Number(String(valor).replace(',','.'))||0:null,observacao_direcao:obs,autorizado_at:new Date().toISOString()};
+    const d=decisoes[id]||{};
+    const valorAut=status==='autorizado'?num(d.valor!==undefined?d.valor:atual.valor_solicitado):null;
+    const alterado={...atual,status,valor_autorizado:valorAut,observacao_direcao:String(d.observacao||'').trim(),autorizado_at:new Date().toISOString()};
     await persistir(registros.map(x=>x.id===id?alterado:x),alterado);
   }
 
   async function concluir(id){
     const atual=registros.find(x=>x.id===id);if(!atual||atual.status!=='autorizado')return;
-    const obs=prompt('Observações finais do atendimento:','')||'';
+    const obs=String(fechamentos[id]||'').trim();
     const alterado={...atual,status:'concluido',observacao_final:obs,concluido_at:new Date().toISOString()};
-    await persistir(registros.map(x=>x.id===id?alterado:x),alterado);
+    const novos=registros.map(x=>x.id===id?alterado:x);
+    setRegistros(novos);salvarLocal(novos);
+    try{
+      if(!String(id).startsWith('local-')){
+        const {data,error}=await supabase.rpc('concluir_atendimento_gestao',{p_id:id,p_observacao_final:obs||null});
+        if(!error&&data){await carregar();return}
+      }
+      await persistir(novos,alterado);
+    }catch{await persistir(novos,alterado)}
   }
 
-  const cont=useMemo(()=>({aguardando:registros.filter(x=>x.status==='aguardando').length,autorizado:registros.filter(x=>x.status==='autorizado').length,concluido:registros.filter(x=>x.status==='concluido').length}),[registros]);
+  const cont=useMemo(()=>({aguardando:registros.filter(x=>x.status==='aguardando').length,autorizado:registros.filter(x=>x.status==='autorizado').length,negado:registros.filter(x=>x.status==='negado').length,concluido:registros.filter(x=>x.status==='concluido').length}),[registros]);
+  const filtrados=useMemo(()=>registros.filter(r=>{
+    const texto=`${r.aluno||''} ${r.responsavel||''} ${r.telefone||''} ${r.produto||''}`.toLowerCase();
+    return (filtroStatus==='todos'||r.status===filtroStatus)&&texto.includes(busca.toLowerCase());
+  }),[registros,busca,filtroStatus]);
 
-  return <section style={{display:'grid',gap:18}}>
-    <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}>
-      <div><p className="eyebrow">APP OPERACIONAL</p><h1 style={{margin:'4px 0'}}>Gestão de Sucesso</h1><p style={{margin:0}}>A equipe recebe a família, solicita autorização e só conclui após liberação da Direção.</p></div>
-      <div style={{display:'flex',gap:8}}><button className={modo==='gestao'?'primary':''} onClick={()=>setModo('gestao')}>Equipe Gestão</button><button className={modo==='direcao'?'primary':''} onClick={()=>setModo('direcao')}>Direção</button></div>
+  return <section className="gestaoSucessoPage">
+    <div className="gsTop">
+      <div><p className="eyebrow">APP OPERACIONAL</p><h1>Gestão de Sucesso</h1><p>A equipe recebe a família, negocia com base nos valores oficiais e solicita liberação da Direção antes do fechamento.</p></div>
+      <div className="gsMode"><button className={modo==='gestao'?'active':''} onClick={()=>setModo('gestao')}>Equipe Gestão</button><button className={modo==='direcao'?'active':''} onClick={()=>setModo('direcao')}>Direção</button></div>
     </div>
+
     {aviso&&<div className="alerta">{aviso}</div>}
-    <div className="metrics"><article><div className="metricIcon"><Clock3 size={21}/></div><div><small>Aguardando</small><strong>{cont.aguardando}</strong><span>pedidos para liberar</span></div></article><article><div className="metricIcon"><ShieldCheck size={21}/></div><div><small>Autorizados</small><strong>{cont.autorizado}</strong><span>podem ser finalizados</span></div></article><article><div className="metricIcon"><CheckCircle2 size={21}/></div><div><small>Concluídos</small><strong>{cont.concluido}</strong><span>atendimentos encerrados</span></div></article></div>
 
-    {modo==='gestao'&&<form className="panel" onSubmit={solicitar} style={{padding:20,display:'grid',gap:12}}><div><h3 style={{margin:0}}>Novo pedido de autorização</h3><p>Registre o atendimento inicial e envie à Direção.</p></div><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10}}><input placeholder="Responsável" value={form.responsavel} onChange={e=>setForm({...form,responsavel:e.target.value})}/><input placeholder="Aluno" value={form.aluno} onChange={e=>setForm({...form,aluno:e.target.value})}/><input placeholder="Telefone" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})}/><input placeholder="Série / turma" value={form.serie} onChange={e=>setForm({...form,serie:e.target.value})}/><input inputMode="decimal" placeholder="Valor solicitado" value={form.valor_solicitado} onChange={e=>setForm({...form,valor_solicitado:e.target.value})}/></div><textarea rows="3" placeholder="Observações da equipe" value={form.observacao_solicitacao} onChange={e=>setForm({...form,observacao_solicitacao:e.target.value})}/><button className="primary" type="submit"><Send size={17}/>Solicitar autorização à Direção</button></form>}
+    <div className="metrics gsMetrics">
+      <article><div className="metricIcon"><Clock3 size={21}/></div><div><small>Aguardando</small><strong>{cont.aguardando}</strong><span>pedidos para liberar</span></div></article>
+      <article><div className="metricIcon"><ShieldCheck size={21}/></div><div><small>Autorizados</small><strong>{cont.autorizado}</strong><span>podem ser finalizados</span></div></article>
+      <article><div className="metricIcon"><XCircle size={21}/></div><div><small>Negados</small><strong>{cont.negado}</strong><span>não liberados</span></div></article>
+      <article><div className="metricIcon"><CheckCircle2 size={21}/></div><div><small>Concluídos</small><strong>{cont.concluido}</strong><span>atendimentos encerrados</span></div></article>
+    </div>
 
-    <div className="panel" style={{padding:20}}><div className="panelHead"><div><h3>{modo==='direcao'?'Fila para decisão da Direção':'Meus atendimentos'}</h3><p>{modo==='direcao'?'Autorize, ajuste o valor ou negue a solicitação.':'A conclusão só é liberada depois da autorização.'}</p></div></div><div style={{display:'grid',gap:12}}>{registros.map(r=><article key={r.id} style={{border:'1px solid #e6ebf3',borderRadius:14,padding:14,display:'grid',gap:8}}><div style={{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}><div><strong>{r.aluno}</strong><div style={{fontSize:13,color:'#667085'}}>{r.responsavel} • {r.telefone||'sem telefone'} • {r.serie||'sem série'}</div></div><span className="status proposal">{STATUS[r.status]||r.status}</span></div><div style={{fontSize:14}}>Valor solicitado: <b>{money(r.valor_solicitado)}</b>{r.valor_autorizado!=null&&<> • Valor autorizado: <b>{money(r.valor_autorizado)}</b></>}</div>{r.observacao_solicitacao&&<div style={{fontSize:13}}>Equipe: {r.observacao_solicitacao}</div>}{r.observacao_direcao&&<div style={{fontSize:13}}>Direção: {r.observacao_direcao}</div>}{r.observacao_final&&<div style={{fontSize:13}}>Fechamento: {r.observacao_final}</div>}
-      {modo==='direcao'&&r.status==='aguardando'&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button className="primary" onClick={()=>decidir(r.id,'autorizado')}><ShieldCheck size={16}/>Autorizar</button><button onClick={()=>decidir(r.id,'negado')}><XCircle size={16}/>Negar</button></div>}
-      {modo==='gestao'&&<div>{r.status==='autorizado'?<button className="primary" onClick={()=>concluir(r.id)}><CheckCircle2 size={16}/>Concluir atendimento</button>:r.status==='aguardando'?<span style={{display:'inline-flex',gap:6,alignItems:'center',color:'#986b00'}}><LockKeyhole size={15}/>Conclusão bloqueada aguardando Direção</span>:null}</div>}
-    </article>)}{!registros.length&&<div className="empty">Nenhum atendimento registrado.</div>}</div></div>
+    {modo==='gestao'&&<form className="panel gsForm" onSubmit={solicitar}>
+      <div className="panelHead"><div><h3>Novo pedido de autorização</h3><p>Preencha o atendimento e escolha um produto da tabela oficial.</p></div></div>
+      <div className="gsFormGrid">
+        <label>Responsável<input required value={form.responsavel} onChange={e=>setForm({...form,responsavel:e.target.value})}/></label>
+        <label>Aluno<input required value={form.aluno} onChange={e=>setForm({...form,aluno:e.target.value})}/></label>
+        <label>Telefone<input value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})}/></label>
+        <label>Série / turma<input value={form.serie} onChange={e=>setForm({...form,serie:e.target.value})}/></label>
+        <label>Categoria<select value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value,produto:'',valor_tabela:'',desconto_solicitado:'',valor_solicitado:''})}><option value="">Todas as categorias</option>{categorias.map(c=><option key={c}>{c}</option>)}</select></label>
+        <label>Produto / Plano<select required value={comercial.find(i=>i.produto===form.produto)?.id||''} onChange={e=>selecionarProduto(e.target.value)}><option value="">Selecione</option>{produtosCategoria.map(p=><option key={p.id} value={p.id}>{p.produto}</option>)}</select></label>
+        <label>Valor de tabela<input readOnly value={form.valor_tabela!==''?money(form.valor_tabela):''}/></label>
+        <label>Desconto solicitado %<input inputMode="decimal" value={form.desconto_solicitado} onChange={e=>recalcularDesconto(e.target.value)}/></label>
+        <label>Valor solicitado<input inputMode="decimal" value={form.valor_solicitado} onChange={e=>setForm({...form,valor_solicitado:e.target.value})}/></label>
+        <label className="gsWide">Observações da equipe<textarea rows="3" value={form.observacao_solicitacao} onChange={e=>setForm({...form,observacao_solicitacao:e.target.value})} placeholder="Motivo do desconto, condição combinada, observações da família..."/></label>
+      </div>
+      <button className="primary gsSend" type="submit"><Send size={17}/>Solicitar autorização à Direção</button>
+    </form>}
+
+    <div className="panel gsQueue">
+      <div className="panelHead gsQueueHead"><div><h3>{modo==='direcao'?'Fila para decisão da Direção':'Atendimentos da Gestão'}</h3><p>{modo==='direcao'?'A Direção pode ajustar o valor e registrar a decisão.':'A Gestão só consegue concluir depois da autorização.'}</p></div><div className="gsFilters"><div className="search"><Search size={15}/><input placeholder="Buscar aluno, responsável..." value={busca} onChange={e=>setBusca(e.target.value)}/></div><select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)}><option value="todos">Todos</option><option value="aguardando">Aguardando</option><option value="autorizado">Autorizados</option><option value="negado">Negados</option><option value="concluido">Concluídos</option></select></div></div>
+
+      <div className="gsCards">{filtrados.map(r=><article className={`gsCard status-${r.status}`} key={r.id}>
+        <div className="gsCardTop"><div><strong>{r.aluno}</strong><small>{r.responsavel} • {r.telefone||'sem telefone'} • {r.serie||'sem série'}</small></div><span className="gsStatus">{STATUS[r.status]||r.status}</span></div>
+        <div className="gsProduct"><b>{r.produto||'Produto não informado'}</b><span>{r.categoria||'Sem categoria'}</span></div>
+        <div className="gsValues"><div><small>Tabela</small><strong>{money(r.valor_tabela||r.valor_solicitado)}</strong></div><div><small>Desconto pedido</small><strong>{num(r.desconto_solicitado).toFixed(2)}%</strong></div><div><small>Valor solicitado</small><strong>{money(r.valor_solicitado)}</strong></div>{r.valor_autorizado!=null&&<div className="approvedValue"><small>Valor autorizado</small><strong>{money(r.valor_autorizado)}</strong></div>}</div>
+        {r.observacao_solicitacao&&<div className="gsNote"><b>Gestão:</b> {r.observacao_solicitacao}</div>}
+        {r.observacao_direcao&&<div className="gsNote direction"><b>Direção:</b> {r.observacao_direcao}</div>}
+        {r.observacao_final&&<div className="gsNote final"><b>Fechamento:</b> {r.observacao_final}</div>}
+
+        {modo==='direcao'&&r.status==='aguardando'&&<div className="gsDecision"><label>Valor a autorizar<input inputMode="decimal" value={decisoes[r.id]?.valor??r.valor_solicitado??''} onChange={e=>atualizarDecisao(r.id,'valor',e.target.value)}/></label><label>Observação da Direção<input value={decisoes[r.id]?.observacao||''} onChange={e=>atualizarDecisao(r.id,'observacao',e.target.value)} placeholder="Condição autorizada ou motivo"/></label><div className="gsDecisionActions"><button className="primary" onClick={()=>decidir(r.id,'autorizado')}><ShieldCheck size={16}/>Autorizar</button><button className="gsReject" onClick={()=>decidir(r.id,'negado')}><XCircle size={16}/>Negar</button></div></div>}
+
+        {modo==='gestao'&&r.status==='autorizado'&&<div className="gsClose"><textarea rows="2" placeholder="Observações finais do fechamento" value={fechamentos[r.id]||''} onChange={e=>setFechamentos({...fechamentos,[r.id]:e.target.value})}/><button className="primary" onClick={()=>concluir(r.id)}><CheckCircle2 size={16}/>Concluir atendimento</button></div>}
+        {modo==='gestao'&&r.status==='aguardando'&&<div className="gsLocked"><LockKeyhole size={15}/>Conclusão bloqueada até a autorização da Direção.</div>}
+      </article>)}{!filtrados.length&&<div className="empty">Nenhum atendimento encontrado.</div>}</div>
+    </div>
   </section>
 }
