@@ -3,6 +3,8 @@ import { LogIn, LogOut, ShieldCheck } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import majesticLogo from '../majestic-logo.png';
 
+const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
+
 export default function AuthGate({children, allowedRoles=[], appName='Majestic Gestão 2027'}){
   const [session,setSession]=useState(null);
   const [profile,setProfile]=useState(null);
@@ -12,65 +14,113 @@ export default function AuthGate({children, allowedRoles=[], appName='Majestic G
   const [erro,setErro]=useState('');
 
   async function carregarPerfil(sess){
-    if(!sess?.user){setProfile(null);setLoading(false);return}
+    if(!sess?.user){setProfile(null);return null}
     try{
-      const consulta=supabase.from('profiles').select('id,nome,email,role,ativo').eq('id',sess.user.id).maybeSingle();
-      const timeout=new Promise(resolve=>setTimeout(()=>resolve({data:null,error:new Error('timeout')}),8000));
+      const consulta = supabase
+        .from('profiles')
+        .select('id,nome,email,role,ativo')
+        .eq('id',sess.user.id)
+        .maybeSingle();
+
+      const timeout = sleep(10000).then(()=>({data:null,error:{message:'timeout'}}));
       const {data,error}=await Promise.race([consulta,timeout]);
+
       if(error||!data){
-        setErro(error?.message==='timeout'?'Não foi possível concluir a conexão. Tente sair e entrar novamente.':'Usuário autenticado, mas o perfil não foi encontrado no sistema.');
-        setProfile(null);setLoading(false);return;
+        setProfile(null);
+        setErro(error?.message==='timeout'
+          ? 'A conexão com o banco demorou mais que o esperado. Tente novamente.'
+          : 'Usuário autenticado, mas o perfil não foi encontrado no sistema.');
+        return null;
       }
-      setErro('');setProfile(data);setLoading(false);
+
+      setProfile(data);
+      setErro('');
+      return data;
     }catch{
-      setErro('Não foi possível carregar seu perfil.');setProfile(null);setLoading(false);
+      setProfile(null);
+      setErro('Não foi possível carregar seu perfil.');
+      return null;
     }
   }
 
   useEffect(()=>{
-    let ativo=true;
-    let timer=null;
+    let mounted=true;
+    let seq=0;
 
-    async function iniciar(){
+    async function aplicarSessao(next){
+      const minhaSeq=++seq;
+      if(!mounted)return;
+      setSession(next||null);
+      if(!next){setProfile(null);setLoading(false);return}
+      await carregarPerfil(next);
+      if(mounted&&minhaSeq===seq)setLoading(false);
+    }
+
+    async function bootstrap(){
+      setLoading(true);
       try{
-        const {data,error}=await supabase.auth.getSession();
-        if(!ativo)return;
-        if(error){setErro('Não foi possível restaurar a sessão.');setLoading(false);return}
-        setSession(data.session);
-        await carregarPerfil(data.session);
+        const timeout=sleep(10000).then(()=>({data:{session:null},error:{message:'timeout'}}));
+        const resultado=await Promise.race([supabase.auth.getSession(),timeout]);
+        if(!mounted)return;
+        if(resultado?.error){
+          setErro(resultado.error.message==='timeout'
+            ? 'A autenticação demorou mais que o esperado. Recarregue a página.'
+            : 'Não foi possível restaurar a sessão.');
+          setLoading(false);
+          return;
+        }
+        await aplicarSessao(resultado?.data?.session||null);
       }catch{
-        if(ativo){setErro('Não foi possível conectar ao Majestic.');setLoading(false)}
+        if(mounted){setErro('Não foi possível conectar ao Majestic.');setLoading(false)}
       }
     }
 
-    iniciar();
+    bootstrap();
 
-    const {data:listener}=supabase.auth.onAuthStateChange((_event,next)=>{
-      if(!ativo)return;
-      setSession(next);
-      setLoading(true);
-      // Não consulta o banco dentro do callback do Auth: evita disputa do lock interno do Supabase.
-      clearTimeout(timer);
-      timer=setTimeout(()=>{if(ativo)carregarPerfil(next)},0);
+    const {data:listener}=supabase.auth.onAuthStateChange((event,next)=>{
+      if(!mounted)return;
+      // O bootstrap já trata INITIAL_SESSION. Ignorar esse evento evita corrida dupla.
+      if(event==='INITIAL_SESSION')return;
+      if(event==='SIGNED_OUT'){
+        seq++;
+        setSession(null);setProfile(null);setLoading(false);setErro('');
+        return;
+      }
+      if(event==='SIGNED_IN'||event==='USER_UPDATED'){
+        setLoading(true);
+        setTimeout(()=>{if(mounted)aplicarSessao(next)},0);
+        return;
+      }
+      // TOKEN_REFRESHED não precisa bloquear a tela nem consultar o perfil novamente.
+      if(event==='TOKEN_REFRESHED'&&next)setSession(next);
     });
 
     return()=>{
-      ativo=false;
-      clearTimeout(timer);
-      listener.subscription.unsubscribe();
+      mounted=false;
+      seq++;
+      listener?.subscription?.unsubscribe();
     };
   },[]);
 
   async function entrar(e){
-    e.preventDefault();setErro('');setLoading(true);
-    const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password:senha});
-    if(error){setLoading(false);setErro('E-mail ou senha inválidos.');return}
-    setSession(data.session);
-    await carregarPerfil(data.session);
+    e.preventDefault();
+    setErro('');setLoading(true);
+    try{
+      const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password:senha});
+      if(error){setLoading(false);setErro('E-mail ou senha inválidos.');return}
+      setSession(data.session);
+      await carregarPerfil(data.session);
+      setLoading(false);
+    }catch{
+      setLoading(false);setErro('Não foi possível entrar agora. Tente novamente.');
+    }
   }
 
   async function sair(){
-    try{await supabase.auth.signOut()}finally{setSession(null);setProfile(null);setLoading(false)}
+    setLoading(true);
+    try{await supabase.auth.signOut({scope:'local'})}
+    catch{}
+    finally{setSession(null);setProfile(null);setErro('');setLoading(false)}
   }
 
   if(loading)return <div className="authScreen"><div className="authCard"><img src={majesticLogo} alt="Majestic"/><p>Conectando ao Majestic...</p></div></div>;
