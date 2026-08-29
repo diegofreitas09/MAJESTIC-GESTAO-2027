@@ -10,7 +10,7 @@ import './auth.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AuthGate appName="Majestic Atendimento 2027" allowedRoles={['gestao','matricula','direcao']}>
+    <AuthGate appName="Majestic Atendimento 2027" allowedRoles={['gestao','matricula']}>
       {({profile,logout})=> <EquipeApp profile={profile} logout={logout}/>} 
     </AuthGate>
   </React.StrictMode>,
