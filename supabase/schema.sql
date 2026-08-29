@@ -1,11 +1,12 @@
 -- MAJESTIC GESTÃO 2027
--- Estrutura inicial do banco Supabase/PostgreSQL
+-- Banco inicial Supabase/PostgreSQL
 
 create extension if not exists "pgcrypto";
 
 create type public.user_role as enum ('direcao','gestao','matricula');
 create type public.lead_stage as enum ('novo','contato','visita','proposta','aguardando_documentacao','aguardando_pagamento','matriculado','perdido');
 create type public.question_status as enum ('pendente','respondida','arquivada');
+create type public.atendimento_tipo as enum ('procura','ligacao','whatsapp','visita','retorno','proposta','observacao');
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -31,6 +32,17 @@ create table public.interessados (
   proximo_contato_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table public.atendimentos (
+  id uuid primary key default gen_random_uuid(),
+  interessado_id uuid references public.interessados(id) on delete cascade,
+  tipo public.atendimento_tipo not null default 'procura',
+  canal text,
+  resumo text,
+  resultado text,
+  atendente_id uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
 );
 
 create table public.produtos (
@@ -99,6 +111,8 @@ create table public.matriculas (
   interessado_id uuid not null references public.interessados(id),
   ano_letivo integer not null default 2027,
   serie text,
+  produto_id uuid references public.produtos(id),
+  condicao_id uuid references public.condicoes_comerciais(id),
   valor_matricula numeric(12,2),
   valor_mensalidade numeric(12,2),
   desconto_percentual numeric(5,2) default 0,
@@ -139,8 +153,19 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute procedure public.handle_new_user();
 
+create or replace function public.is_direcao()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.profiles where id = auth.uid() and role = 'direcao' and ativo = true);
+$$;
+
+create or replace function public.is_staff()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.profiles where id = auth.uid() and role in ('direcao','gestao','matricula') and ativo = true);
+$$;
+
 alter table public.profiles enable row level security;
 alter table public.interessados enable row level security;
+alter table public.atendimentos enable row level security;
 alter table public.produtos enable row level security;
 alter table public.condicoes_comerciais enable row level security;
 alter table public.perguntas_direcao enable row level security;
@@ -148,60 +173,105 @@ alter table public.orientacoes enable row level security;
 alter table public.matriculas enable row level security;
 alter table public.audit_logs enable row level security;
 
+-- PERFIS
 create policy "usuario ve proprio perfil" on public.profiles
-for select to authenticated using (id = auth.uid());
+for select to authenticated using (id = auth.uid() or public.is_direcao());
+create policy "direcao gerencia perfis" on public.profiles
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
 
-create policy "usuarios autenticados veem interessados" on public.interessados
-for select to authenticated using (true);
-create policy "usuarios autenticados criam interessados" on public.interessados
-for insert to authenticated with check (true);
-create policy "usuarios autenticados atualizam interessados" on public.interessados
-for update to authenticated using (true) with check (true);
+-- INTERESSADOS / CRM
+create policy "staff ve interessados" on public.interessados
+for select to authenticated using (public.is_staff());
+create policy "staff cria interessados" on public.interessados
+for insert to authenticated with check (public.is_staff());
+create policy "staff atualiza interessados" on public.interessados
+for update to authenticated using (public.is_staff()) with check (public.is_staff());
 
-create policy "usuarios autenticados veem produtos" on public.produtos
-for select to authenticated using (true);
-create policy "direcao e gestao gerenciam produtos" on public.produtos
-for all to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')))
-with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')));
+-- ATENDIMENTOS
+create policy "staff ve atendimentos" on public.atendimentos
+for select to authenticated using (public.is_staff());
+create policy "staff registra atendimentos" on public.atendimentos
+for insert to authenticated with check (public.is_staff() and atendente_id = auth.uid());
+create policy "direcao ajusta atendimentos" on public.atendimentos
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
 
-create policy "usuarios autenticados veem condicoes" on public.condicoes_comerciais
-for select to authenticated using (true);
-create policy "direcao e gestao gerenciam condicoes" on public.condicoes_comerciais
-for all to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')))
-with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')));
+-- PRODUTOS E VALORES: SOMENTE DIREÇÃO ALTERA
+create policy "staff consulta produtos" on public.produtos
+for select to authenticated using (public.is_staff());
+create policy "somente direcao cria produtos" on public.produtos
+for insert to authenticated with check (public.is_direcao() and criado_por = auth.uid());
+create policy "somente direcao altera produtos" on public.produtos
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
+create policy "somente direcao exclui produtos" on public.produtos
+for delete to authenticated using (public.is_direcao());
 
-create policy "usuarios autenticados veem perguntas" on public.perguntas_direcao
-for select to authenticated using (true);
-create policy "usuarios autenticados criam perguntas" on public.perguntas_direcao
-for insert to authenticated with check (criada_por = auth.uid());
-create policy "direcao e gestao respondem perguntas" on public.perguntas_direcao
+-- CONDIÇÕES COMERCIAIS: SOMENTE DIREÇÃO ALTERA
+create policy "staff consulta condicoes" on public.condicoes_comerciais
+for select to authenticated using (public.is_staff());
+create policy "somente direcao cria condicoes" on public.condicoes_comerciais
+for insert to authenticated with check (public.is_direcao() and autorizado_por = auth.uid());
+create policy "somente direcao altera condicoes" on public.condicoes_comerciais
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
+create policy "somente direcao exclui condicoes" on public.condicoes_comerciais
+for delete to authenticated using (public.is_direcao());
+
+-- PERGUNTAS / ORIENTAÇÕES
+create policy "staff ve perguntas" on public.perguntas_direcao
+for select to authenticated using (public.is_staff());
+create policy "staff cria perguntas" on public.perguntas_direcao
+for insert to authenticated with check (public.is_staff() and criada_por = auth.uid());
+create policy "somente direcao responde perguntas" on public.perguntas_direcao
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
+
+create policy "staff ve orientacoes" on public.orientacoes
+for select to authenticated using (public.is_staff());
+create policy "somente direcao cria orientacoes" on public.orientacoes
+for insert to authenticated with check (public.is_direcao() and criado_por = auth.uid());
+create policy "somente direcao altera orientacoes" on public.orientacoes
+for update to authenticated using (public.is_direcao()) with check (public.is_direcao());
+create policy "somente direcao exclui orientacoes" on public.orientacoes
+for delete to authenticated using (public.is_direcao());
+
+-- MATRÍCULAS
+create policy "staff ve matriculas" on public.matriculas
+for select to authenticated using (public.is_staff());
+create policy "staff cria matriculas" on public.matriculas
+for insert to authenticated with check (public.is_staff() and registrado_por = auth.uid());
+create policy "direcao e gestao atualizam status de matriculas" on public.matriculas
 for update to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')))
-with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')));
+using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao') and p.ativo = true))
+with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao') and p.ativo = true));
 
-create policy "usuarios autenticados veem orientacoes" on public.orientacoes
-for select to authenticated using (true);
-create policy "direcao e gestao gerenciam orientacoes" on public.orientacoes
-for all to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')))
-with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')));
-
-create policy "usuarios autenticados veem matriculas" on public.matriculas
-for select to authenticated using (true);
-create policy "usuarios autenticados criam matriculas" on public.matriculas
-for insert to authenticated with check (true);
-create policy "direcao e gestao atualizam matriculas" on public.matriculas
-for update to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')))
-with check (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role in ('direcao','gestao')));
-
+-- AUDITORIA: VISÍVEL À DIREÇÃO
 create policy "direcao ve auditoria" on public.audit_logs
-for select to authenticated
-using (exists(select 1 from public.profiles p where p.id = auth.uid() and p.role = 'direcao'));
+for select to authenticated using (public.is_direcao());
+
+-- VISÃO EXECUTIVA PARA PAINEL E PDF
+create or replace view public.vw_resumo_executivo as
+select
+  count(*) as total_procuras,
+  count(*) filter (where etapa <> 'novo') as total_em_atendimento,
+  count(*) filter (where etapa = 'visita') as visitas,
+  count(*) filter (where etapa = 'proposta') as propostas,
+  count(*) filter (where etapa = 'matriculado') as matriculas,
+  round((count(*) filter (where etapa = 'matriculado')::numeric / nullif(count(*),0)) * 100, 2) as conversao_percentual
+from public.interessados;
+
+create or replace view public.vw_atendimentos_por_equipe as
+select
+  p.id as atendente_id,
+  p.nome as atendente,
+  count(a.id) as atendimentos,
+  count(a.id) filter (where a.tipo = 'procura') as procuras,
+  count(a.id) filter (where a.tipo = 'visita') as visitas,
+  count(a.id) filter (where a.tipo = 'proposta') as propostas
+from public.profiles p
+left join public.atendimentos a on a.atendente_id = p.id
+group by p.id, p.nome;
 
 create index idx_interessados_etapa on public.interessados(etapa);
 create index idx_interessados_atendente on public.interessados(atendente_id);
+create index idx_atendimentos_tipo on public.atendimentos(tipo);
+create index idx_atendimentos_atendente on public.atendimentos(atendente_id);
 create index idx_perguntas_status on public.perguntas_direcao(status);
 create index idx_matriculas_ano on public.matriculas(ano_letivo);
