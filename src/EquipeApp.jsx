@@ -14,7 +14,23 @@ export default function EquipeApp({profile,logout}){
   useEffect(()=>{
     const onPrompt=e=>{e.preventDefault();setInstallPrompt(e)};
     window.addEventListener('beforeinstallprompt',onPrompt);
-    if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw-equipe.js').catch(()=>{});
+
+    // Auditoria 29/08/2026: o antigo /sw-equipe.js era registrado com escopo raiz (/)
+    // e acabava controlando também o app da Direção, inclusive podendo devolver
+    // equipe.html como fallback para requisições do Executivo. Removemos esse SW
+    // até existir um PWA com escopo totalmente isolado.
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistrations().then(regs=>{
+        regs.forEach(reg=>{
+          const script=reg.active?.scriptURL||reg.waiting?.scriptURL||reg.installing?.scriptURL||'';
+          if(script.includes('/sw-equipe.js')) reg.unregister().catch(()=>{});
+        });
+      }).catch(()=>{});
+    }
+    if('caches' in window){
+      caches.delete('majestic-atendimento-v1').catch(()=>{});
+    }
+
     return()=>window.removeEventListener('beforeinstallprompt',onPrompt);
   },[]);
 
