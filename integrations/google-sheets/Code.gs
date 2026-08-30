@@ -6,7 +6,8 @@ const TABLE_MAP = {
   gestao_clientes: 'CLIENTES',
   gestao_atendimentos: 'ATENDIMENTOS',
   autorizacoes_gestao: 'AUTORIZACOES',
-  produtos: 'PRODUTOS_VALORES'
+  produtos: 'PRODUTOS_VALORES',
+  auditoria_eventos: 'LOG_AUDITORIA'
 };
 
 function doGet() {
@@ -32,8 +33,6 @@ function doPost(e) {
     if (!TABLE_MAP[table]) return json_({ ok: false, error: 'table_not_mapped', table });
 
     mirrorEvent_(table, operation, record, oldRecord);
-    appendAudit_(table, operation, record, oldRecord, body.actor || 'supabase');
-
     return json_({ ok: true, table, operation });
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
@@ -83,9 +82,8 @@ function processBatch_(events, defaultActor) {
     eventsTable.forEach(ev => {
       try {
         if (ev.operation === 'DELETE') {
-          const id = ev.oldRecord.id || ev.record.id;
+          const id = ev.oldRecord[idHeader] || ev.oldRecord.id || ev.record[idHeader] || ev.record.id;
           if (id && existing[String(id)]) markDeletedByHeaders_(sheet, existing[String(id)], headers);
-          appendAudit_(table, ev.operation, ev.record, ev.oldRecord, ev.actor);
           processed++;
           return;
         }
@@ -107,10 +105,9 @@ function processBatch_(events, defaultActor) {
 
         if (table === 'gestao_clientes') syncMatricula_(ev.record);
         if (table === 'gestao_atendimentos') syncOrcamento_(ev.record);
-        appendAudit_(table, ev.operation, ev.record, ev.oldRecord, ev.actor);
         processed++;
       } catch (err) {
-        errors.push({ table, id: ev.record && ev.record.id, error: String(err && err.message || err) });
+        errors.push({ table, id: ev.record && (ev.record.id || ev.record.id_evento), error: String(err && err.message || err) });
       }
     });
 
@@ -126,7 +123,9 @@ function mirrorEvent_(table, operation, record, oldRecord) {
   if (!sheet) throw new Error('Aba não encontrada: ' + TABLE_MAP[table]);
 
   if (operation === 'DELETE') {
-    const id = oldRecord.id || record.id;
+    const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
+    const idHeader = headers.includes('id') ? 'id' : headers.includes('auth_uid') ? 'auth_uid' : headers[0];
+    const id = oldRecord[idHeader] || oldRecord.id || record[idHeader] || record.id;
     if (id) markDeleted_(sheet, id);
     return;
   }
@@ -209,39 +208,6 @@ function syncOrcamento_(record) {
     updated_at: record.updated_at
   };
   upsertByHeaders_(sheet, payload);
-}
-
-function appendAudit_(table, operation, record, oldRecord, actor) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('LOG_AUDITORIA');
-  if (!sheet) return;
-  const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
-  const payload = {
-    id_evento: Utilities.getUuid(),
-    id: Utilities.getUuid(),
-    timestamp: new Date(),
-    data_hora: new Date(),
-    usuario_id: '',
-    usuario_nome: actor,
-    usuario: actor,
-    role: '',
-    acao: operation,
-    operacao: operation,
-    modulo: table,
-    tabela: table,
-    entidade: table,
-    entidade_id: record.id || oldRecord.id || '',
-    registro_id: record.id || oldRecord.id || '',
-    valor_anterior: JSON.stringify(oldRecord || {}),
-    antes_json: JSON.stringify(oldRecord || {}),
-    valor_novo: JSON.stringify(record || {}),
-    depois_json: JSON.stringify(record || {}),
-    origem: 'Supabase',
-    status: 'OK',
-    detalhe: '',
-    sync_at: new Date()
-  };
-  const row = headers.map(h => normalize_(payload[h]));
-  sheet.appendRow(row);
 }
 
 function findRowById_(sheet, idValue, col) {
