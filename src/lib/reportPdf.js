@@ -14,25 +14,28 @@ async function carregarLogo(){
   }catch{return null}
 }
 
-function resumoOrigens(interessados=[]){
+function resumoOrigens(interessados=[],matriculas=[]){
   const mapa={};
-  interessados.forEach(i=>{const origem=txt(i.origem,'Não informado');mapa[origem]=(mapa[origem]||0)+1});
+  interessados.forEach(i=>{const origem=txt(i.origem,'Não informado');if(!mapa[origem])mapa[origem]={cadastros:0,matriculas:0};mapa[origem].cadastros++});
+  matriculas.forEach(m=>{const origem=txt(m.origem,'Não informado');if(!mapa[origem])mapa[origem]={cadastros:0,matriculas:0};mapa[origem].matriculas++});
   const total=Math.max(interessados.length,1);
-  return Object.entries(mapa).sort((a,b)=>b[1]-a[1]).map(([origem,qtd])=>[origem,qtd,`${(qtd/total*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`]);
+  return Object.entries(mapa).sort((a,b)=>b[1].cadastros-a[1].cadastros).map(([origem,d])=>[
+    origem,d.cadastros,d.matriculas,`${(d.cadastros?d.matriculas/d.cadastros*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`,`${(d.cadastros/total*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`
+  ]);
 }
 
 export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo={},funil=[],interessados=[],atendimentos=[],matriculas=[],produtosSupabase=[],produtosComerciais=[],perguntas=[]}={}){
   const doc=new jsPDF({unit:'mm',format:'a4'}), agora=new Date(), logo=await carregarLogo();
-  if(logo){try{doc.addImage(logo,'PNG',14,8,62,27,undefined,'FAST')}catch{}}
-  doc.setFont('helvetica','bold');doc.setFontSize(18);doc.setTextColor(16,42,86);doc.text('MAJESTIC GESTÃO 2027',logo?82:14,18);
-  doc.setFontSize(11);doc.setFont('helvetica','normal');doc.setTextColor(50,65,85);doc.text(`Relatório Executivo — ${periodo}`,logo?82:14,25);doc.text(`Gerado em ${agora.toLocaleString('pt-BR')}`,logo?82:14,31);
-  autoTable(doc,{startY:40,head:[['Indicador','Total']],body:[['Procuras / interessados',resumo.interessados??0],['Atendimentos realizados',resumo.atendimentos??0],['Visitas',resumo.visitas??0],['Propostas',resumo.propostas??0],['Matrículas',resumo.matriculas??0],['Conversão geral',`${Number(resumo.conversao||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`]],headStyles:{fillColor:[16,42,86]}});
+  if(logo){try{doc.addImage(logo,'PNG',14,8,55,24,undefined,'FAST')}catch{}}
+  doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(16,42,86);doc.text('RELATÓRIO EXECUTIVO • MAJESTIC GESTÃO 2027',logo?76:14,17);
+  doc.setFontSize(10);doc.setFont('helvetica','normal');doc.setTextColor(50,65,85);doc.text(periodo,logo?76:14,24);doc.text(`Gerado em ${agora.toLocaleString('pt-BR')}`,logo?76:14,30);
+  autoTable(doc,{startY:39,head:[['Indicador principal','Resultado']],body:[['Procuras / interessados',resumo.interessados??0],['Atendimentos realizados',resumo.atendimentos??0],['Visitas',resumo.visitas??0],['Propostas',resumo.propostas??0],['Matrículas',resumo.matriculas??0],['Conversão geral',`${Number(resumo.conversao||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`]],headStyles:{fillColor:[16,42,86]}});
   let y=doc.lastAutoTable.finalY+8;
   const sec=(titulo,head,body,opts={})=>{if(!body.length)return;y=doc.lastAutoTable?.finalY?doc.lastAutoTable.finalY+8:y;doc.setFont('helvetica','bold');doc.setTextColor(16,42,86);doc.text(titulo,14,y);autoTable(doc,{startY:y+3,head:[head],body,styles:{fontSize:opts.fontSize||7.5,cellPadding:1.7,overflow:'linebreak'},headStyles:{fillColor:[16,42,86]},...opts});y=doc.lastAutoTable.finalY+8};
   sec('Funil de matrículas',['Etapa','Quantidade'],funil.map(i=>[i.nome,i.total]));
-  sec('Como as famílias conheceram a escola',['Origem / canal','Cadastros','Participação'],resumoOrigens(interessados));
-  sec('Procuras e interessados',['Aluno','Responsável','Telefone','Como conheceu?','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.origem,'Não informado'),txt(i.etapa,i.status,i.status_funil)]),{fontSize:6.8});
-  sec('Atendimentos',['Data','Responsável','Aluno','Como conheceu?','Atendente','Resultado'],atendimentos.map(a=>[txt(a.iniciado_at,a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.origem,'Não informado'),txt(a.atendente_nome,a.funcionario_nome,a.atendente),txt(a.resultado,a.status)]),{fontSize:6.6});
+  sec('Como as famílias conheceram a escola',['Origem / canal','Cadastros','Matrículas','Conversão','Participação'],resumoOrigens(interessados,matriculas),{fontSize:7});
+  sec('Procuras e interessados',['Aluno','Responsável','Telefone','Série','Como conheceu?','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.serie,i.turma),txt(i.origem,'Não informado'),txt(i.etapa,i.status,i.status_funil)]),{fontSize:6.3});
+  sec('Atendimentos',['Data / hora','Responsável','Aluno','Série','Como conheceu?','Atendente','Resultado'],atendimentos.map(a=>[txt(a.iniciado_at,a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.serie,a.turma),txt(a.origem,'Não informado'),txt(a.atendente_nome,a.funcionario_nome,a.atendente),txt(a.etapa,a.resultado,a.status)]),{fontSize:6.1});
   sec('Matrículas 2027',['Aluno','Responsável','Série/Turma','Como conheceu?','Plano','Status'],matriculas.map(m=>[txt(m.nome_aluno,m.aluno,m.nome),txt(m.nome_responsavel,m.responsavel),txt(m.serie,m.turma,m.segmento),txt(m.origem,'Não informado'),txt(m.plano,m.modalidade),txt(m.status,m.situacao,'MATRICULADO')]),{fontSize:6.4});
   sec('Tabela comercial — comparação 2026 x 2027',['Produto / Plano','Categoria','2026','Reajuste','2027','Observação'],produtosComerciais.map(p=>[txt(p.produto,p.nome),txt(p.categoria,p.segmento),money(p.valor2026),`${Number(p.reajuste||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`,money(p.valor2027),txt(p.observacao)]),{fontSize:6.4});
   sec('Produtos cadastrados no Supabase',['Produto','Segmento','Valor','Vigência','Status'],produtosSupabase.map(p=>[txt(p.nome,p.produto),txt(p.segmento,p.categoria),money(txt(p.valor,p.valor2027)),txt(p.vigencia),p.publicado===true?'Publicado':txt(p.status,'Interno')]),{fontSize:6.8});
