@@ -19,6 +19,11 @@ function doPost(e) {
     const expected = PropertiesService.getScriptProperties().getProperty(TOKEN_PROPERTY);
     if (!expected || body.token !== expected) return json_({ ok: false, error: 'unauthorized' });
 
+    if (Array.isArray(body.events)) {
+      const result = processBatch_(body.events, body.actor || 'supabase');
+      return json_({ ok: true, mode: 'batch', received: body.events.length, processed: result.processed, errors: result.errors });
+    }
+
     const table = String(body.table || '');
     const operation = String(body.operation || body.type || 'UPSERT').toUpperCase();
     const record = body.record || {};
@@ -35,6 +40,87 @@ function doPost(e) {
   }
 }
 
+function processBatch_(events, defaultActor) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const byTable = {};
+  const errors = [];
+  let processed = 0;
+
+  events.forEach((ev, idx) => {
+    try {
+      const table = String(ev.table || '');
+      const operation = String(ev.operation || ev.type || 'UPSERT').toUpperCase();
+      if (!TABLE_MAP[table]) throw new Error('table_not_mapped:' + table);
+      if (!byTable[table]) byTable[table] = [];
+      byTable[table].push({ operation, record: ev.record || {}, oldRecord: ev.old_record || {}, actor: ev.actor || defaultActor });
+    } catch (err) {
+      errors.push({ index: idx, error: String(err && err.message || err) });
+    }
+  });
+
+  Object.keys(byTable).forEach(table => {
+    const sheet = ss.getSheetByName(TABLE_MAP[table]);
+    if (!sheet) {
+      errors.push({ table, error: 'Aba não encontrada: ' + TABLE_MAP[table] });
+      return;
+    }
+
+    const eventsTable = byTable[table];
+    const lastCol = Math.max(sheet.getLastColumn(), 1);
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    const idHeader = headers.includes('id') ? 'id' : headers.includes('auth_uid') ? 'auth_uid' : headers[0];
+    const idCol = headers.indexOf(idHeader);
+    const existing = {};
+
+    if (sheet.getLastRow() >= 2 && idCol >= 0) {
+      const ids = sheet.getRange(2, idCol + 1, sheet.getLastRow() - 1, 1).getValues();
+      ids.forEach((r, i) => { if (r[0] !== '' && r[0] != null) existing[String(r[0])] = i + 2; });
+    }
+
+    const appendRows = [];
+    const updates = [];
+
+    eventsTable.forEach(ev => {
+      try {
+        if (ev.operation === 'DELETE') {
+          const id = ev.oldRecord.id || ev.record.id;
+          if (id && existing[String(id)]) markDeletedByHeaders_(sheet, existing[String(id)], headers);
+          appendAudit_(table, ev.operation, ev.record, ev.oldRecord, ev.actor);
+          processed++;
+          return;
+        }
+
+        const idValue = ev.record[idHeader] || ev.record.id;
+        if (!idValue) throw new Error('registro_sem_id');
+        const row = headers.map(h => normalize_(ev.record[h]));
+        const syncStatusCol = headers.indexOf('sync_status');
+        const syncAtCol = headers.indexOf('sync_at');
+        if (syncStatusCol >= 0) row[syncStatusCol] = 'OK';
+        if (syncAtCol >= 0) row[syncAtCol] = new Date();
+
+        const rowNumber = existing[String(idValue)];
+        if (rowNumber) updates.push({ rowNumber, row });
+        else {
+          appendRows.push(row);
+          existing[String(idValue)] = sheet.getLastRow() + appendRows.length;
+        }
+
+        if (table === 'gestao_clientes') syncMatricula_(ev.record);
+        if (table === 'gestao_atendimentos') syncOrcamento_(ev.record);
+        appendAudit_(table, ev.operation, ev.record, ev.oldRecord, ev.actor);
+        processed++;
+      } catch (err) {
+        errors.push({ table, id: ev.record && ev.record.id, error: String(err && err.message || err) });
+      }
+    });
+
+    updates.forEach(u => sheet.getRange(u.rowNumber, 1, 1, u.row.length).setValues([u.row]));
+    if (appendRows.length) sheet.getRange(sheet.getLastRow() + 1, 1, appendRows.length, headers.length).setValues(appendRows);
+  });
+
+  return { processed, errors };
+}
+
 function mirrorEvent_(table, operation, record, oldRecord) {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(TABLE_MAP[table]);
   if (!sheet) throw new Error('Aba não encontrada: ' + TABLE_MAP[table]);
@@ -46,13 +132,8 @@ function mirrorEvent_(table, operation, record, oldRecord) {
   }
 
   upsertByHeaders_(sheet, record);
-
-  if (table === 'gestao_clientes') {
-    syncMatricula_(record);
-  }
-  if (table === 'gestao_atendimentos') {
-    syncOrcamento_(record);
-  }
+  if (table === 'gestao_clientes') syncMatricula_(record);
+  if (table === 'gestao_atendimentos') syncOrcamento_(record);
 }
 
 function upsertByHeaders_(sheet, record) {
@@ -73,15 +154,19 @@ function upsertByHeaders_(sheet, record) {
   if (syncAtCol >= 0) sheet.getRange(targetRow, syncAtCol + 1).setValue(new Date());
 }
 
+function markDeletedByHeaders_(sheet, row, headers) {
+  const syncStatusCol = headers.indexOf('sync_status');
+  if (syncStatusCol >= 0) sheet.getRange(row, syncStatusCol + 1).setValue('DELETED');
+  const syncAtCol = headers.indexOf('sync_at');
+  if (syncAtCol >= 0) sheet.getRange(row, syncAtCol + 1).setValue(new Date());
+}
+
 function markDeleted_(sheet, idValue) {
   const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
   const idHeader = headers.includes('id') ? 'id' : headers.includes('auth_uid') ? 'auth_uid' : headers[0];
   const row = findRowById_(sheet, idValue, headers.indexOf(idHeader) + 1);
   if (!row) return;
-  const syncStatusCol = headers.indexOf('sync_status');
-  if (syncStatusCol >= 0) sheet.getRange(row, syncStatusCol + 1).setValue('DELETED');
-  const syncAtCol = headers.indexOf('sync_at');
-  if (syncAtCol >= 0) sheet.getRange(row, syncAtCol + 1).setValue(new Date());
+  markDeletedByHeaders_(sheet, row, headers);
 }
 
 function syncMatricula_(record) {
@@ -131,13 +216,24 @@ function appendAudit_(table, operation, record, oldRecord, actor) {
   if (!sheet) return;
   const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
   const payload = {
+    id_evento: Utilities.getUuid(),
     id: Utilities.getUuid(),
+    timestamp: new Date(),
     data_hora: new Date(),
-    tabela: table,
-    operacao: operation,
-    registro_id: record.id || oldRecord.id || '',
+    usuario_id: '',
+    usuario_nome: actor,
     usuario: actor,
+    role: '',
+    acao: operation,
+    operacao: operation,
+    modulo: table,
+    tabela: table,
+    entidade: table,
+    entidade_id: record.id || oldRecord.id || '',
+    registro_id: record.id || oldRecord.id || '',
+    valor_anterior: JSON.stringify(oldRecord || {}),
     antes_json: JSON.stringify(oldRecord || {}),
+    valor_novo: JSON.stringify(record || {}),
     depois_json: JSON.stringify(record || {}),
     origem: 'Supabase',
     status: 'OK',
