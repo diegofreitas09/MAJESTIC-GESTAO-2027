@@ -3,30 +3,20 @@ import { CalendarDays, CheckCircle2, Clock3, Download, FileText, PlayCircle, Rot
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from './lib/supabase';
-import { BASE_COMERCIAL_2026 } from './lib/comercial2026';
+import { carregarCatalogoOficial, fallbackCatalogo } from './lib/comercialOficial';
 
 const ETAPAS=['contato','perfil','interesse','visita','proposta','decisao','matriculado'];
 const LABELS={contato:'Contato',perfil:'Perfil identificado',interesse:'Interesse',visita:'Visita',proposta:'Proposta',decisao:'Decisão',matriculado:'Matrícula',perdido:'Não converteu'};
 const SERIES=['Berçário','Infantil I','Infantil II','Infantil III','Infantil IV','Infantil V','1º ano','2º ano','3º ano','4º ano','5º ano'];
 const TURNOS=['Manhã','Tarde','Integral','A definir'];
-const COMERCIAL_KEY='majestic_comercial_2027';
 const agora=()=>new Date().toISOString();
 const fmt=v=>v?new Date(v).toLocaleString('pt-BR'):'—';
 const moeda=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const vazio={nome_responsavel:'',nome_aluno:'',telefone:'',email:'',data_nascimento:'',idade:'',bairro:'',escola_atual:'',possui_laudo:false,observacao_laudo:'',serie:'',turno_preferencia:'',modalidade:'Regular',tipo_aluno:'novato',origem:'WhatsApp',interesse_principal:'',proximo_contato_at:'',motivo_perda:''};
 
-function lerComercial(){
- try{
-  const salvo=localStorage.getItem(COMERCIAL_KEY);
-  if(!salvo)return BASE_COMERCIAL_2026;
-  const lista=JSON.parse(salvo);
-  const mapa=new Map((Array.isArray(lista)?lista:[]).map(i=>[i.id,i]));
-  return BASE_COMERCIAL_2026.map(base=>mapa.has(base.id)?{...base,...mapa.get(base.id),valor2026:base.valor2026}:base);
- }catch{return BASE_COMERCIAL_2026}
-}
-
 function aplicavelSerie(item,serie){
  if(!serie)return false;
+ if(Array.isArray(item.serieAplicavel)&&item.serieAplicavel.length)return item.serieAplicavel.includes(serie);
  const id=item.id||'', cat=item.categoria||'';
  const infantil=serie.startsWith('Infantil');
  const fundamental=/^[1-5]º ano$/.test(serie);
@@ -53,14 +43,15 @@ export default function AtendimentoCRM({profile}){
  const [clientes,setClientes]=useState([]),[atendimentos,setAtendimentos]=useState([]),[busca,setBusca]=useState(''),[selecionado,setSelecionado]=useState(null),[atual,setAtual]=useState(null),[aviso,setAviso]=useState('');
  const [form,setForm]=useState(vazio),[obs,setObs]=useState(''),[acoes,setAcoes]=useState({visita:false,proposta:false,confirmou:false,matriculado:false,perdido:false}),[dataInicio,setDataInicio]=useState(()=>new Date().toISOString().slice(0,10)),[dataFim,setDataFim]=useState(()=>new Date().toISOString().slice(0,10));
  const [itensSelecionados,setItensSelecionados]=useState([]);
- const comercial=useMemo(()=>lerComercial(),[]);
+ const [comercial,setComercial]=useState(()=>fallbackCatalogo());
  const itensSerie=useMemo(()=>comercial.filter(i=>aplicavelSerie(i,form.serie)),[comercial,form.serie]);
  const itensOrcamento=useMemo(()=>itensSerie.filter(i=>itensSelecionados.includes(i.id)),[itensSerie,itensSelecionados]);
  const totalOrcamento=useMemo(()=>itensOrcamento.reduce((s,i)=>s+Number(i.valor2027??i.valor2026??0),0),[itensOrcamento]);
  const auto=etapaAutomatica(form,acoes);
 
- useEffect(()=>{carregar();const canal=supabase.channel('crm-equipe-sync-v4').on('postgres_changes',{event:'*',schema:'public',table:'gestao_clientes'},carregar).on('postgres_changes',{event:'*',schema:'public',table:'gestao_atendimentos'},carregar).subscribe();return()=>supabase.removeChannel(canal)},[]);
+ useEffect(()=>{carregar();carregarComercial();const canal=supabase.channel('crm-equipe-sync-v5').on('postgres_changes',{event:'*',schema:'public',table:'gestao_clientes'},carregar).on('postgres_changes',{event:'*',schema:'public',table:'gestao_atendimentos'},carregar).on('postgres_changes',{event:'*',schema:'public',table:'produtos_comerciais'},carregarComercial).subscribe();return()=>supabase.removeChannel(canal)},[]);
  async function carregar(){const [c,a]=await Promise.all([supabase.from('gestao_clientes').select('*').order('updated_at',{ascending:false}).limit(1500),supabase.from('gestao_atendimentos').select('*').order('iniciado_at',{ascending:false}).limit(3000)]);if(c.error||a.error){setAviso(`Sincronização: ${(c.error||a.error)?.message}`);return}setClientes(c.data||[]);setAtendimentos(a.data||[])}
+ async function carregarComercial(){try{const lista=await carregarCatalogoOficial();setComercial(lista)}catch{setComercial(fallbackCatalogo())}}
  const resultados=useMemo(()=>{const q=busca.trim().toLowerCase();if(q.length<2)return[];return clientes.filter(c=>`${c.nome_responsavel||''} ${c.nome_aluno||''} ${c.telefone||''} ${c.email||''}`.toLowerCase().includes(q)).slice(0,8)},[clientes,busca]);
  const historico=useMemo(()=>selecionado?atendimentos.filter(a=>a.cliente_id===selecionado.id):[],[atendimentos,selecionado]);
  const meusHoje=useMemo(()=>{const hoje=new Date().toISOString().slice(0,10);return atendimentos.filter(a=>(!profile?.id||a.funcionario_id===profile.id)&&String(a.iniciado_at||'').slice(0,10)===hoje)},[atendimentos,profile]);
@@ -78,7 +69,7 @@ export default function AtendimentoCRM({profile}){
   setAviso('Sincronizando com a Direção...');const status=etapaAutomatica(form,acoes);
   const payload={...form,idade:form.idade===''?null:Number(form.idade),data_nascimento:form.data_nascimento||null,proximo_contato_at:form.proximo_contato_at||null,status_funil:status.etapa==='perfil'?'contato':status.etapa,updated_at:agora()};let cli;
   if(selecionado){const r=await supabase.from('gestao_clientes').update(payload).eq('id',selecionado.id).select().single();if(r.error){setAviso(r.error.message);return}cli=r.data}else{const r=await supabase.from('gestao_clientes').insert({...payload,matriculado:false}).select().single();if(r.error){setAviso(r.error.message);return}cli=r.data}
-  const orcamento=itensOrcamento.map(i=>({id:i.id,categoria:i.categoria,produto:i.produto,valor:Number(i.valor2027??i.valor2026??0),observacao:i.observacao||''}));
+  const orcamento=itensOrcamento.map(i=>({id:i.id,categoria:i.categoria,produto:i.produto,valor:Number(i.valor2027??i.valor2026??0),periodicidade:i.periodicidade||'',obrigatorio:!!i.obrigatorio,observacao:i.observacao||''}));
   const r=await supabase.from('gestao_atendimentos').insert({cliente_id:cli.id,funcionario_id:profile.id,funcionario_nome:funcionario,status:'em_andamento',etapa:status.etapa==='perfil'?'contato':status.etapa,progresso_percentual:status.pct,observacao_abertura:obs||'',proximo_contato_at:form.proximo_contato_at||null,orcamento_json:orcamento,valor_orcamento:totalOrcamento}).select().single();
   if(r.error){setAviso(r.error.message);return}setSelecionado(cli);setAtual(r.data);setAviso('Atendimento e orçamento salvos. A Direção já consegue acompanhar.');await carregar()
  }
@@ -87,7 +78,7 @@ export default function AtendimentoCRM({profile}){
   if(!selecionado)return;const st=etapaAutomatica(form,acoes),dbEtapa=st.etapa==='perfil'?'contato':st.etapa,final=['matriculado','perdido'].includes(st.etapa);
   const cliPayload={...form,idade:form.idade===''?null:Number(form.idade),data_nascimento:form.data_nascimento||null,proximo_contato_at:form.proximo_contato_at||null,status_funil:dbEtapa,matriculado:st.etapa==='matriculado',matriculado_at:st.etapa==='matriculado'?(selecionado.matriculado_at||agora()):selecionado.matriculado_at,updated_at:agora()};
   const c=await supabase.from('gestao_clientes').update(cliPayload).eq('id',selecionado.id).select().single();if(c.error){setAviso(c.error.message);return}
-  if(atual){const orcamento=itensOrcamento.map(i=>({id:i.id,categoria:i.categoria,produto:i.produto,valor:Number(i.valor2027??i.valor2026??0),observacao:i.observacao||''}));const a=await supabase.from('gestao_atendimentos').update({etapa:dbEtapa,progresso_percentual:st.pct,status:final?'concluido':'em_andamento',observacao_fechamento:obs||'',proximo_passo:form.proximo_contato_at?'Retornar contato':'',proximo_contato_at:form.proximo_contato_at||null,visita_realizada:acoes.visita,proposta_apresentada:acoes.proposta,familia_confirmou_interesse:acoes.confirmou,orcamento_json:orcamento,valor_orcamento:totalOrcamento,encerrado_at:final?agora():null,updated_at:agora()}).eq('id',atual.id).select().single();if(a.error){setAviso(a.error.message);return}setAtual(a.data)}
+  if(atual){const orcamento=itensOrcamento.map(i=>({id:i.id,categoria:i.categoria,produto:i.produto,valor:Number(i.valor2027??i.valor2026??0),periodicidade:i.periodicidade||'',obrigatorio:!!i.obrigatorio,observacao:i.observacao||''}));const a=await supabase.from('gestao_atendimentos').update({etapa:dbEtapa,progresso_percentual:st.pct,status:final?'concluido':'em_andamento',observacao_fechamento:obs||'',proximo_passo:form.proximo_contato_at?'Retornar contato':'',proximo_contato_at:form.proximo_contato_at||null,visita_realizada:acoes.visita,proposta_apresentada:acoes.proposta,familia_confirmou_interesse:acoes.confirmou,orcamento_json:orcamento,valor_orcamento:totalOrcamento,encerrado_at:final?agora():null,updated_at:agora()}).eq('id',atual.id).select().single();if(a.error){setAviso(a.error.message);return}setAtual(a.data)}
   setSelecionado(c.data);setAviso(final?'Atendimento concluído e enviado à Direção.':'Atendimento e orçamento salvos. A Direção recebeu a atualização.');await carregar()
  }
 
@@ -122,7 +113,7 @@ export default function AtendimentoCRM({profile}){
    <label className="crmSpan2">Principal interesse da família<input value={form.interesse_principal} onChange={e=>campo('interesse_principal',e.target.value)} placeholder="Ex.: integral, proposta pedagógica, proximidade..."/></label><label>Próximo retorno<input type="datetime-local" value={form.proximo_contato_at} onChange={e=>campo('proximo_contato_at',e.target.value)}/></label><label className="crmWide">Anotação rápida<textarea rows="2" value={obs} onChange={e=>setObs(e.target.value)} placeholder="O que é importante lembrar deste contato?"/></label>
   </div>
 
-  {form.serie&&<section className="crmBudget"><div className="crmBudgetHead"><div><span>ORÇAMENTO AUTOMÁTICO</span><h3>Valores disponíveis para {form.serie}</h3><p>Marque somente os itens apresentados à família. Os valores 2027 são usados no orçamento.</p></div><strong>{itensSelecionados.length} selecionado(s)</strong></div><div className="crmBudgetGrid">{itensSerie.map(i=><label key={i.id} className={itensSelecionados.includes(i.id)?'selected':''}><input type="checkbox" checked={itensSelecionados.includes(i.id)} onChange={()=>toggleItem(i.id)}/><div><small>{i.categoria}</small><b>{i.produto}</b><span>{i.observacao||''}</span></div><strong>{moeda(i.valor2027??i.valor2026)}</strong></label>)}</div><div className="crmBudgetTotal"><span>Total dos itens selecionados</span><strong>{moeda(totalOrcamento)}</strong></div></section>}
+  {form.serie&&<section className="crmBudget"><div className="crmBudgetHead"><div><span>ORÇAMENTO AUTOMÁTICO • FONTE OFICIAL SUPABASE</span><h3>Valores disponíveis para {form.serie}</h3><p>Marque somente os itens apresentados à família. Mudanças da Direção chegam em tempo real.</p></div><strong>{itensSelecionados.length} selecionado(s)</strong></div><div className="crmBudgetGrid">{itensSerie.map(i=><label key={i.id} className={itensSelecionados.includes(i.id)?'selected':''}><input type="checkbox" checked={itensSelecionados.includes(i.id)} onChange={()=>toggleItem(i.id)}/><div><small>{i.categoria} • {i.periodicidade||'avulso'}{i.obrigatorio?' • obrigatório':''}</small><b>{i.produto}</b><span>{i.observacao||''}</span></div><strong>{moeda(i.valor2027??i.valor2026)}</strong></label>)}</div><div className="crmBudgetTotal"><span>Total dos itens selecionados</span><strong>{moeda(totalOrcamento)}</strong></div></section>}
 
   {!atual&&<button className="primary crmStart" type="submit"><PlayCircle size={18}/>{selecionado?'Retomar atendimento':'Iniciar e salvar atendimento'}</button>}</form>
 
