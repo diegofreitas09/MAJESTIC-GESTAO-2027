@@ -4,15 +4,41 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from './lib/supabase';
 import { carregarCatalogoOficial, fallbackCatalogo } from './lib/comercialOficial';
+import majesticLogo from '../majestic-logo.png';
 
 const ETAPAS=['contato','perfil','interesse','visita','proposta','decisao','matriculado'];
 const LABELS={contato:'Contato',perfil:'Perfil identificado',interesse:'Interesse',visita:'Visita',proposta:'Proposta',decisao:'Decisão',matriculado:'Matrícula',perdido:'Não converteu'};
 const SERIES=['Berçário','Infantil I','Infantil II','Infantil III','Infantil IV','Infantil V','1º ano','2º ano','3º ano','4º ano','5º ano'];
 const TURNOS=['Manhã','Tarde','Integral','A definir'];
+const ORIGENS=['WhatsApp','Telefone','Presencial','Instagram','Indicação','Google','Site','Outro'];
 const agora=()=>new Date().toISOString();
 const fmt=v=>v?new Date(v).toLocaleString('pt-BR'):'—';
 const moeda=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const vazio={nome_responsavel:'',nome_aluno:'',telefone:'',email:'',data_nascimento:'',idade:'',bairro:'',escola_atual:'',possui_laudo:false,observacao_laudo:'',serie:'',turno_preferencia:'',modalidade:'Regular',tipo_aluno:'novato',origem:'WhatsApp',interesse_principal:'',proximo_contato_at:'',motivo_perda:''};
+const vazio={nome_responsavel:'',nome_aluno:'',telefone:'',email:'',data_nascimento:'',idade:'',bairro:'',escola_atual:'',possui_laudo:false,observacao_laudo:'',serie:'',turno_preferencia:'',modalidade:'Regular',tipo_aluno:'novato',origem:'',interesse_principal:'',proximo_contato_at:'',motivo_perda:''};
+
+async function carregarLogo(){
+ try{
+  const r=await fetch(majesticLogo,{cache:'force-cache'});
+  if(!r.ok)return null;
+  const blob=await r.blob();
+  return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob)});
+ }catch{return null}
+}
+
+function aplicarRodape(doc){
+ const pages=doc.internal.getNumberOfPages();
+ for(let i=1;i<=pages;i++){
+  doc.setPage(i);doc.setDrawColor(225);doc.line(14,285,196,285);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(90);
+  doc.text(`Berçário e Creche Escola Majestic • Gestão 2027 • Página ${i} de ${pages}`,14,290);
+ }
+}
+
+function resumoOrigensPeriodo(dados,clientes){
+ const mapa={};
+ dados.forEach(a=>{const c=clientes.find(x=>x.id===a.cliente_id)||{};const origem=c.origem||'Não informado';mapa[origem]=(mapa[origem]||0)+1});
+ const total=Math.max(dados.length,1);
+ return Object.entries(mapa).sort((a,b)=>b[1]-a[1]).map(([origem,qtd])=>[origem,qtd,`${(qtd/total*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`]);
+}
 
 function aplicavelSerie(item,serie){
  if(!serie)return false;
@@ -65,7 +91,7 @@ export default function AtendimentoCRM({profile}){
  function toggleItem(id){setItensSelecionados(v=>v.includes(id)?v.filter(x=>x!==id):[...v,id])}
 
  async function iniciar(e){
-  e.preventDefault();if(!profile?.id||!form.nome_responsavel.trim()||!form.nome_aluno.trim())return;
+  e.preventDefault();if(!profile?.id||!form.nome_responsavel.trim()||!form.nome_aluno.trim()||!form.origem)return;
   setAviso('Sincronizando com a Direção...');const status=etapaAutomatica(form,acoes);
   const payload={...form,idade:form.idade===''?null:Number(form.idade),data_nascimento:form.data_nascimento||null,proximo_contato_at:form.proximo_contato_at||null,status_funil:status.etapa==='perfil'?'contato':status.etapa,updated_at:agora()};let cli;
   if(selecionado){const r=await supabase.from('gestao_clientes').update(payload).eq('id',selecionado.id).select().single();if(r.error){setAviso(r.error.message);return}cli=r.data}else{const r=await supabase.from('gestao_clientes').insert({...payload,matriculado:false}).select().single();if(r.error){setAviso(r.error.message);return}cli=r.data}
@@ -82,19 +108,37 @@ export default function AtendimentoCRM({profile}){
   setSelecionado(c.data);setAviso(final?'Atendimento concluído e enviado à Direção.':'Atendimento e orçamento salvos. A Direção recebeu a atualização.');await carregar()
  }
 
- function gerarPdfAtendimento(){
+ async function gerarPdfAtendimento(){
   if(!form.nome_aluno||!form.nome_responsavel){setAviso('Preencha responsável e aluno antes de gerar o PDF.');return}
-  const doc=new jsPDF();doc.setFontSize(19);doc.text('Majestic - Atendimento e Orçamento 2027',14,18);doc.setFontSize(10);doc.text(`Atendente: ${funcionario}`,14,25);doc.text(`Data: ${new Date().toLocaleString('pt-BR')}`,14,31);
-  autoTable(doc,{startY:37,theme:'grid',head:[['Dados da família','Informação']],body:[['Responsável',form.nome_responsavel],['Aluno',form.nome_aluno],['Série',form.serie||'-'],['Turno',form.turno_preferencia||'-'],['Telefone',form.telefone||'-'],['Bairro',form.bairro||'-'],['Escola atual',form.escola_atual||'-']]});
-  let y=(doc.lastAutoTable?.finalY||78)+7;doc.setFontSize(13);doc.text('Valores apresentados',14,y);
-  autoTable(doc,{startY:y+4,head:[['Categoria','Produto / Plano','Valor 2027']],body:itensOrcamento.length?itensOrcamento.map(i=>[i.categoria,i.produto,moeda(i.valor2027??i.valor2026)]):[['-','Nenhum item selecionado','-']]});
-  y=(doc.lastAutoTable?.finalY||y+20)+7;doc.setFontSize(12);doc.text(`Total dos itens selecionados: ${moeda(totalOrcamento)}`,14,y);
-  if(obs){doc.setFontSize(9);doc.text('Observações do atendimento:',14,y+8);doc.text(doc.splitTextToSize(obs,180),14,y+13)}
-  doc.setFontSize(8);doc.text('Valores sujeitos às condições comerciais vigentes e validação da Direção quando aplicável.',14,287);
+  const doc=new jsPDF({unit:'mm',format:'a4'}),logo=await carregarLogo(),atendente=atual?.atendente_nome||atual?.funcionario_nome||funcionario;
+  if(logo){try{doc.addImage(logo,'PNG',14,8,55,24,undefined,'FAST')}catch{}}
+  doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(16,42,86);doc.text('ATENDIMENTO E ORÇAMENTO 2027',logo?76:14,17);
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(50,65,85);doc.text(`Aluno: ${form.nome_aluno}`,logo?76:14,24);doc.text(`Atendente: ${atendente||'-'} • ${new Date().toLocaleString('pt-BR')}`,logo?76:14,30);
+  autoTable(doc,{startY:39,theme:'grid',head:[['Dados da família','Informação']],body:[['Responsável',form.nome_responsavel],['Aluno',form.nome_aluno],['Série',form.serie||'-'],['Turno',form.turno_preferencia||'-'],['Telefone',form.telefone||'-'],['E-mail',form.email||'-'],['Bairro',form.bairro||'-'],['Escola atual',form.escola_atual||'-'],['Como conheceu a escola?',form.origem||'-'],['Principal interesse',form.interesse_principal||'-'],['Etapa do atendimento',LABELS[auto.etapa]||auto.etapa]],headStyles:{fillColor:[16,42,86]}});
+  let y=(doc.lastAutoTable?.finalY||90)+8;doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(16,42,86);doc.text('Valores apresentados',14,y);
+  autoTable(doc,{startY:y+4,head:[['Categoria','Produto / Plano','Periodicidade','Valor 2027']],body:itensOrcamento.length?itensOrcamento.map(i=>[i.categoria,i.produto,i.periodicidade||'avulso',moeda(i.valor2027??i.valor2026)]):[['-','Nenhum item selecionado','-','-']],headStyles:{fillColor:[16,42,86]}});
+  y=(doc.lastAutoTable?.finalY||y+20)+8;doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(25,45,70);doc.text(`Soma dos itens selecionados: ${moeda(totalOrcamento)}`,14,y);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(90);doc.text('Os itens podem ter periodicidades diferentes. Consulte as condições de cada produto/serviço.',14,y+6);
+  if(obs){doc.setFontSize(9);doc.setTextColor(45);doc.text('Observações do atendimento:',14,y+14);doc.text(doc.splitTextToSize(obs,180),14,y+19)}
+  aplicarRodape(doc);
   doc.save(`majestic-orcamento-${(form.nome_aluno||'aluno').replace(/\s+/g,'-').toLowerCase()}.pdf`)
  }
 
- function relatorio(){const dados=atendimentosPeriodo;const doc=new jsPDF();doc.setFontSize(17);doc.text('Majestic - Relatório de Atendimentos',14,18);doc.setFontSize(10);doc.text(`${funcionario} | ${dataInicio.split('-').reverse().join('/')} a ${dataFim.split('-').reverse().join('/')}`,14,25);autoTable(doc,{startY:31,head:[['Data','Aluno/Família','Etapa','Status']],body:dados.map(a=>{const c=clientes.find(x=>x.id===a.cliente_id)||{};return [fmt(a.iniciado_at),`${c.nome_aluno||'-'} / ${c.nome_responsavel||'-'}`,LABELS[a.etapa]||a.etapa,a.status]})});doc.save(`majestic-atendimentos-${dataInicio}-${dataFim}.pdf`)}
+ async function relatorio(){
+  const dados=atendimentosPeriodo,logo=await carregarLogo(),doc=new jsPDF({unit:'mm',format:'a4'});
+  const concluidos=dados.filter(a=>a.status==='concluido').length,abertos=dados.filter(a=>a.status==='em_andamento').length;
+  const idsClientes=[...new Set(dados.map(a=>a.cliente_id).filter(Boolean))],clientesPeriodo=clientes.filter(c=>idsClientes.includes(c.id));
+  const matsPeriodo=clientesPeriodo.filter(c=>c.matriculado).length,convPeriodo=clientesPeriodo.length?matsPeriodo/clientesPeriodo.length*100:0;
+  if(logo){try{doc.addImage(logo,'PNG',14,8,55,24,undefined,'FAST')}catch{}}
+  doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(16,42,86);doc.text('RELATÓRIO DE ATENDIMENTOS',logo?76:14,17);
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(50,65,85);doc.text(`${dataInicio.split('-').reverse().join('/')} a ${dataFim.split('-').reverse().join('/')}`,logo?76:14,24);doc.text(`Gerado por ${funcionario||'Gestão Majestic'} em ${new Date().toLocaleString('pt-BR')}`,logo?76:14,30);
+  autoTable(doc,{startY:39,head:[['Indicador','Resultado']],body:[['Atendimentos no período',dados.length],['Em andamento',abertos],['Concluídos',concluidos],['Famílias únicas',clientesPeriodo.length],['Matrículas confirmadas',matsPeriodo],['Conversão do período',`${convPeriodo.toLocaleString('pt-BR',{maximumFractionDigits:1})}%`]],headStyles:{fillColor:[16,42,86]}});
+  let y=(doc.lastAutoTable?.finalY||80)+8;doc.setFont('helvetica','bold');doc.setTextColor(16,42,86);doc.text('Como as famílias conheceram a escola',14,y);
+  autoTable(doc,{startY:y+3,head:[['Origem / canal','Atendimentos','Participação']],body:resumoOrigensPeriodo(dados,clientes),headStyles:{fillColor:[16,42,86]}});
+  y=(doc.lastAutoTable?.finalY||y+20)+8;doc.setFont('helvetica','bold');doc.setTextColor(16,42,86);doc.text('Detalhamento dos atendimentos',14,y);
+  autoTable(doc,{startY:y+3,head:[['Data / hora','Aluno','Série / turno','Como conheceu?','Atendente','Etapa / status']],body:dados.map(a=>{const c=clientes.find(x=>x.id===a.cliente_id)||{};return [fmt(a.iniciado_at),`${c.nome_aluno||'-'}\n${c.nome_responsavel||'-'}`,`${c.serie||'-'}\n${c.turno_preferencia||'-'}`,c.origem||'Não informado',a.atendente_nome||a.funcionario_nome||'-',`${LABELS[a.etapa]||a.etapa||'-'}\n${a.status==='concluido'?'Concluído':'Em andamento'}`]}),styles:{fontSize:6.4,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[16,42,86]}});
+  aplicarRodape(doc);doc.save(`majestic-atendimentos-${dataInicio}-${dataFim}.pdf`)
+ }
  const indice=Math.max(0,ETAPAS.indexOf(auto.etapa));
 
  return <section className="crmPage">
@@ -108,20 +152,20 @@ export default function AtendimentoCRM({profile}){
    <label>Responsável *<input required value={form.nome_responsavel} onChange={e=>campo('nome_responsavel',e.target.value)}/></label><label>WhatsApp / telefone<input value={form.telefone} onChange={e=>campo('telefone',e.target.value)}/></label><label>E-mail<input value={form.email} onChange={e=>campo('email',e.target.value)}/></label>
    <label>Aluno *<input required value={form.nome_aluno} onChange={e=>campo('nome_aluno',e.target.value)}/></label><label>Data de nascimento<input type="date" value={form.data_nascimento} onChange={e=>campo('data_nascimento',e.target.value)}/></label><label>Idade<input type="number" min="0" max="30" value={form.idade} onChange={e=>campo('idade',e.target.value)}/></label>
    <label>Bairro<input value={form.bairro} onChange={e=>campo('bairro',e.target.value)}/></label><label>Escola atual<input value={form.escola_atual} onChange={e=>campo('escola_atual',e.target.value)}/></label><label>Tipo<select value={form.tipo_aluno} onChange={e=>campo('tipo_aluno',e.target.value)}><option value="novato">Novato</option><option value="veterano">Veterano</option></select></label>
-   <label>Série pretendida<select value={form.serie} onChange={e=>campo('serie',e.target.value)}><option value="">Selecione</option>{SERIES.map(x=><option key={x}>{x}</option>)}</select></label><label>Turno de preferência<select value={form.turno_preferencia} onChange={e=>campo('turno_preferencia',e.target.value)}><option value="">Selecione</option>{TURNOS.map(x=><option key={x}>{x}</option>)}</select></label><label>Como conheceu?<select value={form.origem} onChange={e=>campo('origem',e.target.value)}>{['WhatsApp','Telefone','Presencial','Instagram','Indicação','Google','Site','Outro'].map(x=><option key={x}>{x}</option>)}</select></label>
+   <label>Série pretendida<select value={form.serie} onChange={e=>campo('serie',e.target.value)}><option value="">Selecione</option>{SERIES.map(x=><option key={x}>{x}</option>)}</select></label><label>Turno de preferência<select value={form.turno_preferencia} onChange={e=>campo('turno_preferencia',e.target.value)}><option value="">Selecione</option>{TURNOS.map(x=><option key={x}>{x}</option>)}</select></label><label>Como conheceu? *<select required value={form.origem} onChange={e=>campo('origem',e.target.value)}><option value="">Selecione</option>{ORIGENS.map(x=><option key={x}>{x}</option>)}</select></label>
    <label>Possui laudo / necessidade específica?<select value={form.possui_laudo?'sim':'nao'} onChange={e=>campo('possui_laudo',e.target.value==='sim')}><option value="nao">Não informado / Não</option><option value="sim">Sim</option></select></label>{form.possui_laudo&&<label className="crmSpan2">Observação necessária para o atendimento<input value={form.observacao_laudo} onChange={e=>campo('observacao_laudo',e.target.value)} placeholder="Registre somente o necessário para o atendimento escolar"/></label>}
    <label className="crmSpan2">Principal interesse da família<input value={form.interesse_principal} onChange={e=>campo('interesse_principal',e.target.value)} placeholder="Ex.: integral, proposta pedagógica, proximidade..."/></label><label>Próximo retorno<input type="datetime-local" value={form.proximo_contato_at} onChange={e=>campo('proximo_contato_at',e.target.value)}/></label><label className="crmWide">Anotação rápida<textarea rows="2" value={obs} onChange={e=>setObs(e.target.value)} placeholder="O que é importante lembrar deste contato?"/></label>
   </div>
 
-  {form.serie&&<section className="crmBudget"><div className="crmBudgetHead"><div><span>ORÇAMENTO AUTOMÁTICO • FONTE OFICIAL SUPABASE</span><h3>Valores disponíveis para {form.serie}</h3><p>Marque somente os itens apresentados à família. Mudanças da Direção chegam em tempo real.</p></div><strong>{itensSelecionados.length} selecionado(s)</strong></div><div className="crmBudgetGrid">{itensSerie.map(i=><label key={i.id} className={itensSelecionados.includes(i.id)?'selected':''}><input type="checkbox" checked={itensSelecionados.includes(i.id)} onChange={()=>toggleItem(i.id)}/><div><small>{i.categoria} • {i.periodicidade||'avulso'}{i.obrigatorio?' • obrigatório':''}</small><b>{i.produto}</b><span>{i.observacao||''}</span></div><strong>{moeda(i.valor2027??i.valor2026)}</strong></label>)}</div><div className="crmBudgetTotal"><span>Total dos itens selecionados</span><strong>{moeda(totalOrcamento)}</strong></div></section>}
+  {form.serie&&<section className="crmBudget"><div className="crmBudgetHead"><div><span>ORÇAMENTO AUTOMÁTICO • FONTE OFICIAL SUPABASE</span><h3>Valores disponíveis para {form.serie}</h3><p>Marque somente os itens apresentados à família. Mudanças da Direção chegam em tempo real.</p></div><strong>{itensSelecionados.length} selecionado(s)</strong></div><div className="crmBudgetGrid">{itensSerie.map(i=><label key={i.id} className={itensSelecionados.includes(i.id)?'selected':''}><input type="checkbox" checked={itensSelecionados.includes(i.id)} onChange={()=>toggleItem(i.id)}/><div><small>{i.categoria} • {i.periodicidade||'avulso'}{i.obrigatorio?' • obrigatório':''}</small><b>{i.produto}</b><span>{i.observacao||''}</span></div><strong>{moeda(i.valor2027??i.valor2026)}</strong></label>)}</div><div className="crmBudgetTotal"><span>Soma dos itens selecionados</span><strong>{moeda(totalOrcamento)}</strong></div></section>}
 
   {!atual&&<button className="primary crmStart" type="submit"><PlayCircle size={18}/>{selecionado?'Retomar atendimento':'Iniciar e salvar atendimento'}</button>}</form>
 
-  {(atual||selecionado)&&<section className="panel crmCurrent"><div className="crmCurrentHead"><div><span>DESEMPENHO DO ATENDIMENTO</span><h3>{form.nome_aluno}</h3><p>{funcionario} • atualização automática conforme o atendimento evolui</p></div><strong>{auto.pct}% • {LABELS[auto.etapa]}</strong></div><div className="crmPerformance"><div className="crmPerformanceBar"><i style={{width:`${auto.pct}%`}}/></div><div className="crmSteps">{ETAPAS.map((e,i)=><div key={e} className={i<indice?'done':i===indice?'active':''}><i>{i+1}</i><span>{LABELS[e]}</span></div>)}</div></div><div className="crmQuickActions"><button type="button" className={acoes.visita?'done':''} onClick={()=>setAcoes({...acoes,visita:!acoes.visita})}>✓ Visita realizada</button><button type="button" className={acoes.proposta?'done':''} onClick={()=>setAcoes({...acoes,proposta:!acoes.proposta})}>✓ Proposta apresentada</button><button type="button" className={acoes.confirmou?'done':''} onClick={()=>setAcoes({...acoes,confirmou:!acoes.confirmou})}>✓ Família confirmou interesse</button><button type="button" className="success" onClick={()=>setAcoes({...acoes,matriculado:true,perdido:false})}>Matrícula confirmada</button><button type="button" className="loss" onClick={()=>setAcoes({...acoes,perdido:true,matriculado:false})}>Não converteu</button></div>{acoes.perdido&&<label className="crmLossReason">Motivo<input value={form.motivo_perda} onChange={e=>campo('motivo_perda',e.target.value)} placeholder="Ex.: valor, localização, horário, concorrente..."/></label>}<div className="crmFinishActions"><button type="button" className="primary crmSave" onClick={salvar}>Salvar atendimento</button><button type="button" className="crmPdfBtn" onClick={gerarPdfAtendimento}><FileText size={17}/>Gerar PDF para a família</button></div></section>}
+  {(atual||selecionado)&&<section className="panel crmCurrent"><div className="crmCurrentHead"><div><span>DESEMPENHO DO ATENDIMENTO</span><h3>{form.nome_aluno}</h3><p>{atual?.atendente_nome||atual?.funcionario_nome||funcionario} • atualização automática conforme o atendimento evolui</p></div><strong>{auto.pct}% • {LABELS[auto.etapa]}</strong></div><div className="crmPerformance"><div className="crmPerformanceBar"><i style={{width:`${auto.pct}%`}}/></div><div className="crmSteps">{ETAPAS.map((e,i)=><div key={e} className={i<indice?'done':i===indice?'active':''}><i>{i+1}</i><span>{LABELS[e]}</span></div>)}</div></div><div className="crmQuickActions"><button type="button" className={acoes.visita?'done':''} onClick={()=>setAcoes({...acoes,visita:!acoes.visita})}>✓ Visita realizada</button><button type="button" className={acoes.proposta?'done':''} onClick={()=>setAcoes({...acoes,proposta:!acoes.proposta})}>✓ Proposta apresentada</button><button type="button" className={acoes.confirmou?'done':''} onClick={()=>setAcoes({...acoes,confirmou:!acoes.confirmou})}>✓ Família confirmou interesse</button><button type="button" className="success" onClick={()=>setAcoes({...acoes,matriculado:true,perdido:false})}>Matrícula confirmada</button><button type="button" className="loss" onClick={()=>setAcoes({...acoes,perdido:true,matriculado:false})}>Não converteu</button></div>{acoes.perdido&&<label className="crmLossReason">Motivo<input value={form.motivo_perda} onChange={e=>campo('motivo_perda',e.target.value)} placeholder="Ex.: valor, localização, horário, concorrente..."/></label>}<div className="crmFinishActions"><button type="button" className="primary crmSave" onClick={salvar}>Salvar atendimento</button><button type="button" className="crmPdfBtn" onClick={gerarPdfAtendimento}><FileText size={17}/>Gerar PDF para a família</button></div></section>}
 
-  {selecionado&&historico.length>0&&<section className="panel crmHistory"><div className="panelHead"><div><h3>Linha do tempo da família</h3><p>Histórico recuperado automaticamente.</p></div></div>{historico.map(h=><article key={h.id}><div><strong>{LABELS[h.etapa]||h.etapa}</strong><small>{fmt(h.iniciado_at)} • {h.funcionario_nome}</small></div><span>{h.status}</span><p>{h.observacao_fechamento||h.observacao_abertura||'Sem observação.'}</p></article>)}</section>}
+  {selecionado&&historico.length>0&&<section className="panel crmHistory"><div className="panelHead"><div><h3>Linha do tempo da família</h3><p>Histórico recuperado automaticamente.</p></div></div>{historico.map(h=><article key={h.id}><div><strong>{LABELS[h.etapa]||h.etapa}</strong><small>{fmt(h.iniciado_at)} • {h.atendente_nome||h.funcionario_nome}</small></div><span>{h.status}</span><p>{h.observacao_fechamento||h.observacao_abertura||'Sem observação.'}</p></article>)}</section>}
 
-  <section className="panel crmReport"><div><CalendarDays size={22}/><div><h3>Atendimentos do dia ou período</h3><p>Os mesmos registros já estão disponíveis para a Direção em tempo real.</p></div></div><label>Início<input type="date" value={dataInicio} onChange={e=>setDataInicio(e.target.value)}/></label><label>Fim<input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)}/></label><button type="button" className="primary" onClick={relatorio}><Download size={17}/>Baixar relatório</button></section>
-  <section className="panel crmPeriodList"><div className="panelHead"><div><h3>{dataInicio===dataFim?'Atendimentos do dia':'Atendimentos do período'}</h3><p>{atendimentosPeriodo.length} atendimento(s) de {dataInicio.split('-').reverse().join('/')} a {dataFim.split('-').reverse().join('/')}.</p></div></div><div className="crmPeriodRows">{atendimentosPeriodo.map(a=>{const c=clientes.find(x=>x.id===a.cliente_id)||{};return <article key={a.id}><div><strong>{c.nome_aluno||'Aluno não informado'}</strong><span>{c.nome_responsavel||'Responsável não informado'} • {fmt(a.iniciado_at)}</span><small>{c.serie||'Sem série'} • {c.turno_preferencia||'Sem turno'} • {c.bairro||'Sem bairro'}</small></div><div><b>{LABELS[a.etapa]||a.etapa}</b><span>{a.status==='concluido'?'Concluído':'Em andamento'}</span><small>{a.funcionario_nome} • {c.telefone||'sem telefone'}</small></div></article>})}{!atendimentosPeriodo.length&&<div className="empty">Nenhum atendimento encontrado nesse período.</div>}</div></section>
+  <section className="panel crmReport"><div><CalendarDays size={22}/><div><h3>Atendimentos do dia ou período</h3><p>Relatório institucional com indicadores, origem das famílias e detalhamento dos atendimentos.</p></div></div><label>Início<input type="date" value={dataInicio} onChange={e=>setDataInicio(e.target.value)}/></label><label>Fim<input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)}/></label><button type="button" className="primary" onClick={relatorio}><Download size={17}/>Baixar relatório</button></section>
+  <section className="panel crmPeriodList"><div className="panelHead"><div><h3>{dataInicio===dataFim?'Atendimentos do dia':'Atendimentos do período'}</h3><p>{atendimentosPeriodo.length} atendimento(s) de {dataInicio.split('-').reverse().join('/')} a {dataFim.split('-').reverse().join('/')}.</p></div></div><div className="crmPeriodRows">{atendimentosPeriodo.map(a=>{const c=clientes.find(x=>x.id===a.cliente_id)||{};return <article key={a.id}><div><strong>{c.nome_aluno||'Aluno não informado'}</strong><span>{c.nome_responsavel||'Responsável não informado'} • {fmt(a.iniciado_at)}</span><small>{c.serie||'Sem série'} • {c.turno_preferencia||'Sem turno'} • {c.origem||'Origem não informada'}</small></div><div><b>{LABELS[a.etapa]||a.etapa}</b><span>{a.status==='concluido'?'Concluído':'Em andamento'}</span><small>{a.atendente_nome||a.funcionario_nome} • {c.telefone||'sem telefone'}</small></div></article>})}{!atendimentosPeriodo.length&&<div className="empty">Nenhum atendimento encontrado nesse período.</div>}</div></section>
  </section>
 }
