@@ -14,6 +14,13 @@ async function carregarLogo(){
   }catch{return null}
 }
 
+function resumoOrigens(interessados=[]){
+  const mapa={};
+  interessados.forEach(i=>{const origem=txt(i.origem,'Não informado');mapa[origem]=(mapa[origem]||0)+1});
+  const total=Math.max(interessados.length,1);
+  return Object.entries(mapa).sort((a,b)=>b[1]-a[1]).map(([origem,qtd])=>[origem,qtd,`${(qtd/total*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`]);
+}
+
 export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo={},funil=[],interessados=[],atendimentos=[],matriculas=[],produtosSupabase=[],produtosComerciais=[],perguntas=[]}={}){
   const doc=new jsPDF({unit:'mm',format:'a4'}), agora=new Date(), logo=await carregarLogo();
   if(logo){try{doc.addImage(logo,'PNG',14,8,62,27,undefined,'FAST')}catch{}}
@@ -23,9 +30,10 @@ export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo
   let y=doc.lastAutoTable.finalY+8;
   const sec=(titulo,head,body,opts={})=>{if(!body.length)return;y=doc.lastAutoTable?.finalY?doc.lastAutoTable.finalY+8:y;doc.setFont('helvetica','bold');doc.setTextColor(16,42,86);doc.text(titulo,14,y);autoTable(doc,{startY:y+3,head:[head],body,styles:{fontSize:opts.fontSize||7.5,cellPadding:1.7,overflow:'linebreak'},headStyles:{fillColor:[16,42,86]},...opts});y=doc.lastAutoTable.finalY+8};
   sec('Funil de matrículas',['Etapa','Quantidade'],funil.map(i=>[i.nome,i.total]));
-  sec('Procuras e interessados',['Aluno','Responsável','Telefone','E-mail','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.email,i['e-mail']),txt(i.etapa,i.status)]),{fontSize:6.8});
-  sec('Atendimentos',['Data','Responsável','Aluno','Canal','Atendente','Resultado'],atendimentos.map(a=>[txt(a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.canal),txt(a.atendente),txt(a.resultado,a.status)]),{fontSize:6.6});
-  sec('Matrículas 2027',['Aluno','Responsável','Série/Turma','Plano','Valor','Status'],matriculas.map(m=>[txt(m.nome_aluno,m.aluno,m.nome),txt(m.nome_responsavel,m.responsavel),txt(m.serie,m.turma,m.segmento),txt(m.plano,m.modalidade),m.valor!=null?money(m.valor):'',txt(m.status,m.situacao)]),{fontSize:6.6});
+  sec('Como as famílias conheceram a escola',['Origem / canal','Cadastros','Participação'],resumoOrigens(interessados));
+  sec('Procuras e interessados',['Aluno','Responsável','Telefone','Como conheceu?','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.origem,'Não informado'),txt(i.etapa,i.status,i.status_funil)]),{fontSize:6.8});
+  sec('Atendimentos',['Data','Responsável','Aluno','Como conheceu?','Atendente','Resultado'],atendimentos.map(a=>[txt(a.iniciado_at,a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.origem,'Não informado'),txt(a.atendente_nome,a.funcionario_nome,a.atendente),txt(a.resultado,a.status)]),{fontSize:6.6});
+  sec('Matrículas 2027',['Aluno','Responsável','Série/Turma','Como conheceu?','Plano','Status'],matriculas.map(m=>[txt(m.nome_aluno,m.aluno,m.nome),txt(m.nome_responsavel,m.responsavel),txt(m.serie,m.turma,m.segmento),txt(m.origem,'Não informado'),txt(m.plano,m.modalidade),txt(m.status,m.situacao,'MATRICULADO')]),{fontSize:6.4});
   sec('Tabela comercial — comparação 2026 x 2027',['Produto / Plano','Categoria','2026','Reajuste','2027','Observação'],produtosComerciais.map(p=>[txt(p.produto,p.nome),txt(p.categoria,p.segmento),money(p.valor2026),`${Number(p.reajuste||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`,money(p.valor2027),txt(p.observacao)]),{fontSize:6.4});
   sec('Produtos cadastrados no Supabase',['Produto','Segmento','Valor','Vigência','Status'],produtosSupabase.map(p=>[txt(p.nome,p.produto),txt(p.segmento,p.categoria),money(txt(p.valor,p.valor2027)),txt(p.vigencia),p.publicado===true?'Publicado':txt(p.status,'Interno')]),{fontSize:6.8});
   sec('Central da Direção',['Status','Pergunta','Resposta / orientação'],perguntas.map(p=>[txt(p.status),txt(p.pergunta),txt(p.resposta,'Aguardando resposta')]),{fontSize:6.8});
