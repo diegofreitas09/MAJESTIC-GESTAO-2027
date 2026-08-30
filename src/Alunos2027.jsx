@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FileSignature, ListChecks, RefreshCw, Search, Tags, Users } from 'lucide-react';
+import { Download, FileSignature, ListChecks, Pencil, RefreshCw, Save, Search, Tags, Users, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from './lib/supabase';
 import majesticLogo from '../majestic-logo.png';
 
 const ANO=2027;
+const SERIES=['Berçário','Infantil I','Infantil II','Infantil III','Infantil IV','Infantil V','1º ano','2º ano','3º ano','4º ano','5º ano'];
+const TURNOS=['Manhã','Tarde','Integral','A definir'];
 const clean=v=>String(v||'').trim();
 const dataBR=v=>v?new Date(`${String(v).slice(0,10)}T12:00:00`).toLocaleDateString('pt-BR'):'—';
+const fichaVazia={aluno_id:'',matricula_id:'',nome_completo:'',nome_social:'',nome_para_lista:'',codigo_aluno:'',data_nascimento:'',serie:'',turma:'',turno:'',sala:'',numero_chamada:'',modalidade:'Regular',responsavel_nome:'',responsavel_telefone:'',responsavel_email:'',observacao_pedagogica:''};
 
 async function carregarLogo(){
   try{const r=await fetch(majesticLogo,{cache:'force-cache'});if(!r.ok)return null;const blob=await r.blob();return await new Promise(resolve=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result);fr.onerror=()=>resolve(null);fr.readAsDataURL(blob)})}catch{return null}
@@ -21,8 +24,9 @@ function rodape(doc,titulo){
 }
 
 export default function Alunos2027(){
-  const [alunos,setAlunos]=useState([]),[erro,setErro]=useState(''),[carregando,setCarregando]=useState(true);
+  const [alunos,setAlunos]=useState([]),[erro,setErro]=useState(''),[aviso,setAviso]=useState(''),[carregando,setCarregando]=useState(true),[salvando,setSalvando]=useState(false);
   const [busca,setBusca]=useState(''),[serie,setSerie]=useState(''),[turma,setTurma]=useState(''),[turno,setTurno]=useState('');
+  const [editando,setEditando]=useState(null),[ficha,setFicha]=useState(fichaVazia);
 
   async function carregar(){
     setCarregando(true);setErro('');
@@ -33,11 +37,38 @@ export default function Alunos2027(){
 
   useEffect(()=>{carregar();const canal=supabase.channel('majestic-alunos-2027').on('postgres_changes',{event:'*',schema:'public',table:'alunos'},carregar).on('postgres_changes',{event:'*',schema:'public',table:'matriculas_academicas'},carregar).subscribe();return()=>supabase.removeChannel(canal)},[]);
 
-  const series=useMemo(()=>[...new Set(alunos.map(a=>clean(a.serie)).filter(Boolean))].sort(),[alunos]);
+  const series=useMemo(()=>[...new Set([...SERIES,...alunos.map(a=>clean(a.serie)).filter(Boolean)])],[alunos]);
   const turmas=useMemo(()=>[...new Set(alunos.filter(a=>!serie||a.serie===serie).map(a=>clean(a.turma)).filter(Boolean))].sort(),[alunos,serie]);
   const turnos=useMemo(()=>[...new Set(alunos.filter(a=>(!serie||a.serie===serie)&&(!turma||a.turma===turma)).map(a=>clean(a.turno)).filter(Boolean))].sort(),[alunos,serie,turma]);
   const filtrados=useMemo(()=>{const q=busca.trim().toLowerCase();return alunos.filter(a=>(!serie||a.serie===serie)&&(!turma||a.turma===turma)&&(!turno||a.turno===turno)&&(!q||`${a.aluno||''} ${a.nome_lista||''} ${a.responsavel_nome||''} ${a.responsavel_telefone||''} ${a.codigo_aluno||''}`.toLowerCase().includes(q)))},[alunos,busca,serie,turma,turno]);
   const grupos=useMemo(()=>new Set(filtrados.map(a=>`${a.serie}|${a.turma||''}|${a.turno}`)).size,[filtrados]);
+
+  function abrirEdicao(a){
+    setEditando(a);
+    setFicha({
+      aluno_id:a.aluno_id||'',matricula_id:a.matricula_id||'',nome_completo:a.nome_completo||a.aluno||'',nome_social:a.nome_social||'',nome_para_lista:a.nome_para_lista||'',codigo_aluno:a.codigo_aluno||'',data_nascimento:a.data_nascimento?String(a.data_nascimento).slice(0,10):'',serie:a.serie||'',turma:a.turma||'',turno:a.turno||'',sala:a.sala||'',numero_chamada:a.numero_chamada??'',modalidade:a.modalidade||'Regular',responsavel_nome:a.responsavel_nome||'',responsavel_telefone:a.responsavel_telefone||'',responsavel_email:a.responsavel_email||'',observacao_pedagogica:a.observacao_pedagogica||''
+    });
+    setAviso('');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function fecharEdicao(){setEditando(null);setFicha(fichaVazia)}
+  function campo(k,v){setFicha(f=>({...f,[k]:v}))}
+
+  async function salvarEdicao(e){
+    e.preventDefault();
+    if(!ficha.aluno_id||!ficha.matricula_id||!ficha.nome_completo.trim()||!ficha.serie||!ficha.turno){setAviso('Preencha nome do aluno, série e turno.');return}
+    setSalvando(true);setAviso('Salvando organização acadêmica...');
+    const alunoPayload={nome_completo:ficha.nome_completo.trim(),nome_social:ficha.nome_social.trim()||null,codigo_aluno:ficha.codigo_aluno.trim()||null,data_nascimento:ficha.data_nascimento||null,atualizado_em:new Date().toISOString()};
+    const matriculaPayload={serie:ficha.serie,turma:ficha.turma.trim()||null,turno:ficha.turno,sala:ficha.sala.trim()||null,numero_chamada:ficha.numero_chamada===''?null:Number(ficha.numero_chamada),nome_para_lista:ficha.nome_para_lista.trim()||null,modalidade:ficha.modalidade||'Regular',responsavel_nome:ficha.responsavel_nome.trim()||null,responsavel_telefone:ficha.responsavel_telefone.trim()||null,responsavel_email:ficha.responsavel_email.trim()||null,observacao_pedagogica:ficha.observacao_pedagogica.trim()||null,atualizado_em:new Date().toISOString()};
+    const [ra,rm]=await Promise.all([
+      supabase.from('alunos').update(alunoPayload).eq('id',ficha.aluno_id),
+      supabase.from('matriculas_academicas').update(matriculaPayload).eq('id',ficha.matricula_id)
+    ]);
+    setSalvando(false);
+    if(ra.error||rm.error){setAviso((ra.error||rm.error).message);return}
+    setAviso(`Aluno ${ficha.nome_completo} atualizado. Turma, chamada e identificação foram organizadas.`);
+    fecharEdicao();await carregar();
+  }
 
   async function gerar(tipo){
     if(!filtrados.length)return;
@@ -66,6 +97,30 @@ export default function Alunos2027(){
     <section className="panel" style={{padding:24}}>
       <div className="panelHead" style={{alignItems:'flex-start',gap:14}}><div><p className="eyebrow">BASE ACADÊMICA • {ANO}</p><h3 style={{fontSize:24,margin:'4px 0'}}>Alunos 2027</h3><p>Organize os matriculados por série, turma e turno e gere listas prontas para o uso escolar.</p></div><button className="icon" type="button" onClick={carregar}><RefreshCw size={18}/></button></div>
       {erro&&<div className="alerta" style={{marginTop:12}}>Base acadêmica: {erro}. Confirme se as migrations de Alunos 2027 já foram executadas no Supabase.</div>}
+      {aviso&&<div className="alerta" style={{marginTop:12}}>{aviso}</div>}
+
+      {editando&&<form onSubmit={salvarEdicao} style={{marginTop:18,padding:18,border:'1px solid #cddcf0',borderRadius:16,background:'#f8fbff'}}>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,marginBottom:14}}><div><p className="eyebrow">ORGANIZAÇÃO ACADÊMICA</p><h3 style={{margin:'4px 0'}}>Editar aluno / organizar turma</h3><p>Defina os dados que serão usados em chamada, assinatura, etiquetas e relatórios.</p></div><button type="button" className="icon" onClick={fecharEdicao}><X size={18}/></button></div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12}}>
+          <label>Nome completo *<input required value={ficha.nome_completo} onChange={e=>campo('nome_completo',e.target.value)}/></label>
+          <label>Nome social<input value={ficha.nome_social} onChange={e=>campo('nome_social',e.target.value)}/></label>
+          <label>Nome para lista<input value={ficha.nome_para_lista} onChange={e=>campo('nome_para_lista',e.target.value)} placeholder="Como deve aparecer nas listas"/></label>
+          <label>Código do aluno<input value={ficha.codigo_aluno} onChange={e=>campo('codigo_aluno',e.target.value)} placeholder="Ex.: M2027-001"/></label>
+          <label>Data de nascimento<input type="date" value={ficha.data_nascimento} onChange={e=>campo('data_nascimento',e.target.value)}/></label>
+          <label>Série *<select required value={ficha.serie} onChange={e=>campo('serie',e.target.value)}><option value="">Selecione</option>{series.map(x=><option key={x}>{x}</option>)}</select></label>
+          <label>Turma<input value={ficha.turma} onChange={e=>campo('turma',e.target.value.toUpperCase())} placeholder="Ex.: A, B, Única"/></label>
+          <label>Turno *<select required value={ficha.turno} onChange={e=>campo('turno',e.target.value)}><option value="">Selecione</option>{TURNOS.map(x=><option key={x}>{x}</option>)}</select></label>
+          <label>Sala<input value={ficha.sala} onChange={e=>campo('sala',e.target.value)} placeholder="Ex.: Sala 05"/></label>
+          <label>Nº da chamada<input type="number" min="1" value={ficha.numero_chamada} onChange={e=>campo('numero_chamada',e.target.value)}/></label>
+          <label>Modalidade<input value={ficha.modalidade} onChange={e=>campo('modalidade',e.target.value)}/></label>
+          <label>Responsável<input value={ficha.responsavel_nome} onChange={e=>campo('responsavel_nome',e.target.value)}/></label>
+          <label>Telefone do responsável<input value={ficha.responsavel_telefone} onChange={e=>campo('responsavel_telefone',e.target.value)}/></label>
+          <label>E-mail do responsável<input value={ficha.responsavel_email} onChange={e=>campo('responsavel_email',e.target.value)}/></label>
+          <label style={{gridColumn:'1/-1'}}>Observação pedagógica<textarea rows="3" value={ficha.observacao_pedagogica} onChange={e=>campo('observacao_pedagogica',e.target.value)} placeholder="Uso interno da escola"/></label>
+        </div>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:16}}><button className="primary" type="submit" disabled={salvando}><Save size={17}/>{salvando?'Salvando...':'Salvar organização'}</button><button type="button" onClick={fecharEdicao}>Cancelar</button></div>
+      </form>}
+
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:12,margin:'18px 0'}}>
         <article style={{padding:16,border:'1px solid #e4ebf4',borderRadius:14}}><Users size={20}/><small style={{display:'block',marginTop:7}}>Alunos matriculados</small><strong style={{fontSize:27}}>{carregando?'...':alunos.length}</strong></article>
         <article style={{padding:16,border:'1px solid #e4ebf4',borderRadius:14}}><ListChecks size={20}/><small style={{display:'block',marginTop:7}}>Alunos no filtro</small><strong style={{fontSize:27}}>{filtrados.length}</strong></article>
@@ -86,7 +141,7 @@ export default function Alunos2027(){
 
     <section className="panel" style={{marginTop:16,padding:20,overflowX:'auto'}}>
       <div className="panelHead"><div><h3>Relação de alunos</h3><p>{filtrados.length} registro(s) no filtro atual.</p></div></div>
-      <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}><thead><tr>{['Nº','Aluno','Nascimento','Série','Turma','Turno','Responsável','Telefone','Atendente'].map(h=><th key={h} style={{textAlign:'left',padding:'10px 8px',borderBottom:'1px solid #dbe4ef'}}>{h}</th>)}</tr></thead><tbody>{filtrados.map((a,i)=><tr key={a.matricula_id||a.aluno_id||i}><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.numero_chamada||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}><strong>{a.nome_lista||a.aluno}</strong><br/><small>{a.codigo_aluno||''}</small></td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{dataBR(a.data_nascimento)}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.serie}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.turma||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.turno}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.responsavel_nome||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.responsavel_telefone||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.atendente_nome||'—'}</td></tr>)}{!filtrados.length&&<tr><td colSpan="9" style={{padding:24,textAlign:'center'}}>Nenhum aluno encontrado.</td></tr>}</tbody></table>
+      <table style={{width:'100%',borderCollapse:'collapse',minWidth:1040}}><thead><tr>{['Nº','Aluno','Nascimento','Série','Turma','Sala','Turno','Responsável','Telefone','Atendente','Ação'].map(h=><th key={h} style={{textAlign:'left',padding:'10px 8px',borderBottom:'1px solid #dbe4ef'}}>{h}</th>)}</tr></thead><tbody>{filtrados.map((a,i)=><tr key={a.matricula_id||a.aluno_id||i}><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.numero_chamada||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}><strong>{a.nome_lista||a.aluno}</strong><br/><small>{a.codigo_aluno||''}</small></td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{dataBR(a.data_nascimento)}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.serie}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.turma||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.sala||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.turno}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.responsavel_nome||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.responsavel_telefone||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}>{a.atendente_nome||'—'}</td><td style={{padding:8,borderBottom:'1px solid #edf1f6'}}><button type="button" onClick={()=>abrirEdicao(a)} style={{display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #cfd9e8',borderRadius:9,padding:'8px 10px',background:'#fff',cursor:'pointer',fontWeight:700}}><Pencil size={15}/>Editar</button></td></tr>)}{!filtrados.length&&<tr><td colSpan="11" style={{padding:24,textAlign:'center'}}>Nenhum aluno encontrado.</td></tr>}</tbody></table>
     </section>
   </section>;
 }
