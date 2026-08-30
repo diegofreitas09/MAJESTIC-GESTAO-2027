@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Mail, MapPin, Phone, Search, School, UserRound } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, Mail, MapPin, Megaphone, Phone, Search, School, UserRound } from 'lucide-react';
 
 const dt=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
 const txt=v=>String(v??'').trim()||'-';
@@ -12,16 +12,16 @@ export default function ClientesExecutivo({dados=[],modo='interessados'}){
     const base=modo==='matriculas'?dados.filter(x=>x.matriculado===true):dados;
     const q=busca.toLowerCase().trim();
     if(!q)return base;
-    return base.filter(x=>`${x.nome_aluno||''} ${x.nome_responsavel||''} ${x.telefone||''} ${x.email||''} ${x.serie||''} ${x.bairro||''} ${x.escola_atual||''}`.toLowerCase().includes(q));
+    return base.filter(x=>`${x.nome_aluno||''} ${x.nome_responsavel||''} ${x.telefone||''} ${x.email||''} ${x.serie||''} ${x.bairro||''} ${x.escola_atual||''} ${x.origem||''}`.toLowerCase().includes(q));
   },[dados,busca,modo]);
 
   const titulo=modo==='matriculas'?'Matrículas':'Procuras e interessados';
-  const subtitulo=modo==='matriculas'?'Famílias com matrícula confirmada no CRM.':'Cadastros completos realizados pela Gestão de Sucesso.';
+  const subtitulo=modo==='matriculas'?'Famílias com matrícula confirmada no CRM, incluindo origem da captação.':'Cadastros completos realizados pela Gestão de Sucesso, com origem comercial registrada.';
 
   return <section className="panel modulePage clienteExecPage">
     <div className="panelHead clienteExecHead">
       <div><h3>{titulo}</h3><p>{subtitulo}</p></div>
-      <div className="clienteExecTools"><div className="search"><Search size={16}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar aluno, responsável, telefone..."/></div><span>{filtrados.length} registros</span></div>
+      <div className="clienteExecTools"><div className="search"><Search size={16}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar aluno, responsável, telefone, origem..."/></div><span>{filtrados.length} registros</span></div>
     </div>
     <div className="clienteExecList">{filtrados.map(c=>{
       const isOpen=aberto===c.id;
@@ -29,7 +29,7 @@ export default function ClientesExecutivo({dados=[],modo='interessados'}){
         <button type="button" className="clienteExecSummary" onClick={()=>setAberto(isOpen?null:c.id)}>
           <div className="clienteExecAvatar">{String(c.nome_aluno||'AL').slice(0,2).toUpperCase()}</div>
           <div className="clienteExecMain"><strong>{txt(c.nome_aluno)}</strong><small>{txt(c.nome_responsavel)}</small></div>
-          <div className="clienteExecMeta"><span><Phone size={14}/>{txt(c.telefone)}</span><span><School size={14}/>{txt(c.serie)}</span><span><CalendarDays size={14}/>{dt(c.created_at)}</span></div>
+          <div className="clienteExecMeta"><span><Phone size={14}/>{txt(c.telefone)}</span><span><School size={14}/>{txt(c.serie)}</span><span><Megaphone size={14}/>{txt(c.origem)}</span><span><CalendarDays size={14}/>{dt(c.created_at)}</span></div>
           <div className="clienteExecTags"><em>{status(c.status_funil)}</em>{c.matriculado&&<b>MATRICULADO</b>}</div>
           {isOpen?<ChevronUp size={18}/>:<ChevronDown size={18}/>} 
         </button>
@@ -46,7 +46,7 @@ export default function ClientesExecutivo({dados=[],modo='interessados'}){
             <div><small>Bairro</small><strong><MapPin size={13}/>{txt(c.bairro)}</strong></div>
             <div><small>Escola atual</small><strong><School size={13}/>{txt(c.escola_atual)}</strong></div>
             <div><small>Tipo de aluno</small><strong>{txt(c.tipo_aluno)}</strong></div>
-            <div><small>Origem</small><strong>{txt(c.origem)}</strong></div>
+            <div style={{background:'#fff8df',borderRadius:10,padding:10}}><small>Como conheceu?</small><strong><Megaphone size={13}/>{txt(c.origem)}</strong></div>
             <div><small>Interesse principal</small><strong>{txt(c.interesse_principal)}</strong></div>
             <div><small>Possui laudo</small><strong>{c.possui_laudo===true?'Sim':c.possui_laudo===false?'Não':'-'}</strong></div>
             <div><small>Próximo contato</small><strong>{dt(c.proximo_contato_at)}</strong></div>
