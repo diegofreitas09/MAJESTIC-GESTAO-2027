@@ -27,23 +27,25 @@ function App(){
  async function carregarDados(){
   setCarregando(true);setErro('');
   try{
-   const [clientesR,atendR,prodR,pergR,autR]=await Promise.all([
+   const [clientesR,atendBaseR,prodR,pergR,autR]=await Promise.all([
     supabase.from('gestao_clientes').select('*').order('created_at',{ascending:false}).limit(1000),
-    supabase.from('vw_gestao_atendimentos_detalhado').select('*').order('iniciado_at',{ascending:false}).limit(1000),
+    supabase.from('gestao_atendimentos').select('*').order('iniciado_at',{ascending:false}).limit(1000),
     carregarTabela('produtos'),carregarTabela('perguntas_direcao'),carregarTabela('autorizacoes_gestao')
    ]);
-   const clientes=clientesR.data||[], atend=atendR.data||[];
+   const clientes=clientesR.data||[];
+   const clientesMap=new Map(clientes.map(c=>[String(c.id),c]));
+   const atend=(atendBaseR.data||[]).map(a=>({...clientesMap.get(String(a.cliente_id)),...a}));
    const mats=clientes.filter(c=>c.matriculado===true);
    setInteressados(clientes);setAtendimentos(atend);setMatriculas(mats);setProdutos(prodR.data);setPerguntas(pergR.data);setAutorizacoes(autR.data);
    const propostas=atend.filter(a=>['proposta','decisao','matriculado'].includes(a.etapa)).length;
    const visitas=atend.filter(a=>['visita','proposta','decisao','matriculado'].includes(a.etapa)).length;
    setResumo({total_procuras:clientes.length,total_atendimentos:atend.length,total_em_atendimento:atend.filter(a=>a.status==='em_andamento').length,total_visitas:visitas,total_propostas:propostas,total_matriculas:mats.length,conversao_percentual:clientes.length?mats.length/clientes.length*100:0});
-   const falhas=[clientesR,atendR,prodR,pergR,autR].filter(x=>x.error);
+   const falhas=[clientesR,atendBaseR,prodR,pergR,autR].filter(x=>x.error);
    if(falhas.length)setErro(`Conexão ativa. ${falhas.length} módulo(s) precisam de ajuste de tabela/permissão no Supabase.`);
   }catch(e){setErro(e?.message||'Não foi possível consultar o Supabase.')}finally{setCarregando(false)}
  }
  useEffect(()=>{carregarDados()},[]);
- useEffect(()=>{const canal=supabase.channel('majestic-executivo-crm').on('postgres_changes',{event:'*',schema:'public',table:'gestao_clientes'},carregarDados).on('postgres_changes',{event:'*',schema:'public',table:'gestao_atendimentos'},carregarDados).on('postgres_changes',{event:'*',schema:'public',table:'autorizacoes_gestao'},carregarDados).subscribe();return()=>{supabase.removeChannel(canal)}},[]);
+ useEffect(()=>{const canal=supabase.channel('majestic-executivo-crm-v2').on('postgres_changes',{event:'*',schema:'public',table:'gestao_clientes'},carregarDados).on('postgres_changes',{event:'*',schema:'public',table:'gestao_atendimentos'},carregarDados).on('postgres_changes',{event:'*',schema:'public',table:'autorizacoes_gestao'},carregarDados).subscribe();return()=>{supabase.removeChannel(canal)}},[]);
  const funil=useMemo(()=>[{nome:'Procuras',total:n(resumo.total_procuras??interessados.length)},{nome:'Atendimentos',total:n(resumo.total_atendimentos??atendimentos.length)},{nome:'Visitas',total:n(resumo.total_visitas)},{nome:'Propostas',total:n(resumo.total_propostas)},{nome:'Matrículas',total:n(resumo.total_matriculas??matriculas.length)}],[resumo,interessados,atendimentos,matriculas]);
  const maxFunil=Math.max(...funil.map(x=>x.total),1),conversao=n(resumo.conversao_percentual??(funil[0].total?funil[4].total/funil[0].total*100:0)),pendentes=perguntas.filter(p=>!p.resposta&&p.status!=='respondida').length;
  const autorizacoesPendentes=autorizacoes.filter(a=>a.status==='aguardando').length;
