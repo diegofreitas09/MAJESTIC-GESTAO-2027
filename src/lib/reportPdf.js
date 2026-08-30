@@ -24,6 +24,25 @@ function resumoOrigens(interessados=[],matriculas=[]){
   ]);
 }
 
+function resumoAtendentes(atendimentos=[]){
+  const mapa={};
+  atendimentos.forEach(a=>{
+    const nome=txt(a.atendente_nome,a.funcionario_nome,a.atendente,'Não informado');
+    if(!mapa[nome])mapa[nome]={atendimentos:0,concluidos:0,familias:new Set(),matriculados:new Set()};
+    const item=mapa[nome];
+    item.atendimentos++;
+    if(a.status==='concluido')item.concluidos++;
+    const familia=txt(a.cliente_id,a.nome_aluno,a.aluno,a.nome_responsavel,a.responsavel);
+    if(familia)item.familias.add(String(familia));
+    if(a.matriculado===true&&familia)item.matriculados.add(String(familia));
+  });
+  return Object.entries(mapa).map(([nome,d])=>{
+    const familias=d.familias.size;
+    const matriculas=d.matriculados.size;
+    return [nome,d.atendimentos,d.concluidos,familias,matriculas,`${(familias?matriculas/familias*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`];
+  }).sort((a,b)=>b[4]-a[4]||b[1]-a[1]||String(a[0]).localeCompare(String(b[0]),'pt-BR'));
+}
+
 export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo={},funil=[],interessados=[],atendimentos=[],matriculas=[],produtosSupabase=[],produtosComerciais=[],perguntas=[]}={}){
   const doc=new jsPDF({unit:'mm',format:'a4'}), agora=new Date(), logo=await carregarLogo();
   if(logo){try{doc.addImage(logo,'PNG',14,8,55,24,undefined,'FAST')}catch{}}
@@ -34,6 +53,7 @@ export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo
   const sec=(titulo,head,body,opts={})=>{if(!body.length)return;y=doc.lastAutoTable?.finalY?doc.lastAutoTable.finalY+8:y;doc.setFont('helvetica','bold');doc.setTextColor(16,42,86);doc.text(titulo,14,y);autoTable(doc,{startY:y+3,head:[head],body,styles:{fontSize:opts.fontSize||7.5,cellPadding:1.7,overflow:'linebreak'},headStyles:{fillColor:[16,42,86]},...opts});y=doc.lastAutoTable.finalY+8};
   sec('Funil de matrículas',['Etapa','Quantidade'],funil.map(i=>[i.nome,i.total]));
   sec('Como as famílias conheceram a escola',['Origem / canal','Cadastros','Matrículas','Conversão','Participação'],resumoOrigens(interessados,matriculas),{fontSize:7});
+  sec('Desempenho por atendente',['Atendente','Atendimentos','Concluídos','Famílias','Matrículas','Conversão'],resumoAtendentes(atendimentos),{fontSize:6.8});
   sec('Procuras e interessados',['Aluno','Responsável','Telefone','Série','Como conheceu?','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.serie,i.turma),txt(i.origem,'Não informado'),txt(i.etapa,i.status,i.status_funil)]),{fontSize:6.3});
   sec('Atendimentos',['Data / hora','Responsável','Aluno','Série','Como conheceu?','Atendente','Resultado'],atendimentos.map(a=>[txt(a.iniciado_at,a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.serie,a.turma),txt(a.origem,'Não informado'),txt(a.atendente_nome,a.funcionario_nome,a.atendente),txt(a.etapa,a.resultado,a.status)]),{fontSize:6.1});
   sec('Matrículas 2027',['Aluno','Responsável','Série/Turma','Como conheceu?','Plano','Status'],matriculas.map(m=>[txt(m.nome_aluno,m.aluno,m.nome),txt(m.nome_responsavel,m.responsavel),txt(m.serie,m.turma,m.segmento),txt(m.origem,'Não informado'),txt(m.plano,m.modalidade),txt(m.status,m.situacao,'MATRICULADO')]),{fontSize:6.4});
