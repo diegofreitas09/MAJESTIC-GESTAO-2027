@@ -14,39 +14,17 @@ export default function EquipeApp({profile,logout}){
   useEffect(()=>{
     const onPrompt=e=>{e.preventDefault();setInstallPrompt(e)};
     window.addEventListener('beforeinstallprompt',onPrompt);
-
-    // Auditoria 29/08/2026: o antigo /sw-equipe.js era registrado com escopo raiz (/)
-    // e acabava controlando também o app da Direção, inclusive podendo devolver
-    // equipe.html como fallback para requisições do Executivo. Removemos esse SW
-    // até existir um PWA com escopo totalmente isolado.
-    if('serviceWorker' in navigator){
-      navigator.serviceWorker.getRegistrations().then(regs=>{
-        regs.forEach(reg=>{
-          const script=reg.active?.scriptURL||reg.waiting?.scriptURL||reg.installing?.scriptURL||'';
-          if(script.includes('/sw-equipe.js')) reg.unregister().catch(()=>{});
-        });
-      }).catch(()=>{});
-    }
-    if('caches' in window){
-      caches.delete('majestic-atendimento-v1').catch(()=>{});
-    }
-
+    if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(regs=>{regs.forEach(reg=>{const script=reg.active?.scriptURL||reg.waiting?.scriptURL||reg.installing?.scriptURL||'';if(script.includes('/sw-equipe.js'))reg.unregister().catch(()=>{})})}).catch(()=>{})}
+    if('caches' in window)caches.delete('majestic-atendimento-v1').catch(()=>{});
     return()=>window.removeEventListener('beforeinstallprompt',onPrompt);
   },[]);
 
-  async function instalar(){
-    if(standalone)return;
-    if(installPrompt){installPrompt.prompt();await installPrompt.userChoice.catch(()=>null);setInstallPrompt(null);return;}
-    setIosHint(true);
-  }
+  async function instalar(){if(standalone)return;if(installPrompt){installPrompt.prompt();await installPrompt.userChoice.catch(()=>null);setInstallPrompt(null);return}setIosHint(true)}
 
   return <div className="equipeApp equipeOnly">
-    <header className="equipeHeader">
-      <div className="equipeBrand"><img src={majesticLogo} alt="Majestic"/><div><span>APP DE ATENDIMENTO</span><h1>Majestic Atendimento 2027</h1><p>{profile?.nome||'Equipe'} • Gestão de Sucesso</p></div></div>
-      <div className="equipeHeaderActions">{!standalone&&<button className="primary equipeInstall" onClick={instalar}>{isIOS?<Smartphone size={18}/>:<Download size={18}/>}Instalar no celular</button>}<button className="equipeLogout" onClick={logout} title="Sair"><LogOut size={18}/></button></div>
-    </header>
+    <header className="equipeHeader"><div className="equipeBrand"><img src={majesticLogo} alt="Majestic"/><div><span>APP DE ATENDIMENTO</span><h1>Majestic Atendimento 2027</h1><p>{profile?.nome||'Equipe'} • Gestão de Sucesso</p></div></div><div className="equipeHeaderActions">{!standalone&&<button className="primary equipeInstall" onClick={instalar}>{isIOS?<Smartphone size={18}/>:<Download size={18}/>}Instalar no celular</button>}<button className="equipeLogout" onClick={logout} title="Sair"><LogOut size={18}/></button></div></header>
     {iosHint&&<div className="installHint">{isIOS?'No iPhone/iPad: toque em Compartilhar e depois em “Adicionar à Tela de Início”.':'No Android: abra o menu do navegador e escolha “Instalar app” ou “Adicionar à tela inicial”.'}</div>}
     <nav className="equipeTabs"><button className={aba==='atendimento'?'active':''} onClick={()=>setAba('atendimento')}><Users size={18}/>Atendimento</button><button className={aba==='comercial'?'active':''} onClick={()=>setAba('comercial')}><Handshake size={18}/>Valores e autorizações</button></nav>
-    <main className="equipeMain">{aba==='atendimento'?<AtendimentoCRM profile={profile}/>:<GestaoSucesso/>}</main>
+    <main className="equipeMain">{aba==='atendimento'?<AtendimentoCRM profile={profile}/>:<GestaoSucesso initialMode="gestao" lockMode/>}</main>
   </div>
 }
