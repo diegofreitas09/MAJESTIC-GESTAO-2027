@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Clock3, MapPin, Phone, Search, UserRound, WalletCards } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, Clock3, MapPin, Megaphone, Phone, Search, UserRound, WalletCards } from 'lucide-react';
 
 const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
 const dt=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
@@ -14,13 +14,13 @@ export default function AtendimentosExecutivo({dados=[]}){
   const filtrados=useMemo(()=>{
     const q=busca.toLowerCase().trim();
     if(!q)return dados;
-    return dados.filter(a=>`${a.nome_aluno||''} ${a.nome_responsavel||''} ${a.funcionario_nome||''} ${a.telefone||''} ${a.serie||''} ${a.bairro||''}`.toLowerCase().includes(q));
+    return dados.filter(a=>`${a.nome_aluno||''} ${a.nome_responsavel||''} ${a.atendente_nome||a.funcionario_nome||''} ${a.telefone||''} ${a.serie||''} ${a.bairro||''} ${a.origem||''}`.toLowerCase().includes(q));
   },[dados,busca]);
 
   return <section className="panel modulePage atendExecPage">
     <div className="panelHead atendExecHead">
-      <div><h3>Atendimentos</h3><p>Histórico sincronizado da equipe com data, horário, atendente e dados do cadastro.</p></div>
-      <div className="atendExecTools"><div className="search"><Search size={16}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar aluno, responsável, atendente..."/></div><span>{filtrados.length} registros</span></div>
+      <div><h3>Atendimentos</h3><p>Histórico sincronizado com horário, atendente, origem da família e dados completos do cadastro.</p></div>
+      <div className="atendExecTools"><div className="search"><Search size={16}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar aluno, responsável, atendente, origem..."/></div><span>{filtrados.length} registros</span></div>
     </div>
 
     <div className="atendExecList">{filtrados.map(a=>{
@@ -30,7 +30,7 @@ export default function AtendimentosExecutivo({dados=[]}){
         <button type="button" className="atendExecSummary" onClick={()=>setAberto(isOpen?null:a.id)}>
           <div className="atendExecAvatar">{String(a.nome_aluno||'AT').slice(0,2).toUpperCase()}</div>
           <div className="atendExecMain"><strong>{txt(a.nome_aluno)}</strong><small>{txt(a.nome_responsavel)}</small></div>
-          <div className="atendExecMeta"><span><CalendarDays size={14}/>{onlyDate(a.iniciado_at)}</span><span><Clock3 size={14}/>{onlyTime(a.iniciado_at)}</span><span><UserRound size={14}/>{txt(a.funcionario_nome)}</span></div>
+          <div className="atendExecMeta"><span><CalendarDays size={14}/>{onlyDate(a.iniciado_at)}</span><span><Clock3 size={14}/>{onlyTime(a.iniciado_at)}</span><span><UserRound size={14}/>{txt(a.atendente_nome||a.funcionario_nome)}</span><span><Megaphone size={14}/>{txt(a.origem)}</span></div>
           <div className="atendExecTags"><em>{etapa(a.etapa)}</em><b className={`execStatus ${a.status||''}`}>{etapa(a.status)}</b></div>
           {isOpen?<ChevronUp size={18}/>:<ChevronDown size={18}/>} 
         </button>
@@ -40,12 +40,12 @@ export default function AtendimentosExecutivo({dados=[]}){
             <div><small>Início do atendimento</small><strong>{dt(a.iniciado_at)}</strong></div>
             <div><small>Última atualização</small><strong>{dt(a.updated_at)}</strong></div>
             <div><small>Encerramento</small><strong>{dt(a.encerrado_at)}</strong></div>
-            <div><small>Atendente</small><strong>{txt(a.funcionario_nome)}</strong></div>
+            <div><small>Atendente responsável</small><strong>{txt(a.atendente_nome||a.funcionario_nome)}</strong></div>
             <div><small>Série</small><strong>{txt(a.serie)}</strong></div>
             <div><small>Turno</small><strong>{txt(a.turno_preferencia)}</strong></div>
             <div><small>Telefone</small><strong><Phone size={13}/>{txt(a.telefone)}</strong></div>
             <div><small>Bairro</small><strong><MapPin size={13}/>{txt(a.bairro)}</strong></div>
-            <div><small>Origem</small><strong>{txt(a.origem)}</strong></div>
+            <div style={{background:'#fff8df',borderRadius:10,padding:10}}><small>Como conheceu?</small><strong><Megaphone size={13}/>{txt(a.origem)}</strong></div>
             <div><small>Tipo de aluno</small><strong>{txt(a.tipo_aluno)}</strong></div>
             <div><small>Interesse principal</small><strong>{txt(a.interesse_principal)}</strong></div>
             <div><small>Próximo contato</small><strong>{dt(a.proximo_contato_at)}</strong></div>
