@@ -1,78 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
+const num=v=>Number(String(v??'').replace(',','.'))||0;
+const pct=(novo,base)=>base?((num(novo)-num(base))/num(base))*100:0;
+const desconto=(apos,ate)=>num(apos)?((num(apos)-num(ate))/num(apos))*100:0;
 
 export default function TabelaComercialEquipe2027(){
-  const [linhas,setLinhas]=useState([]);
-  const [busca,setBusca]=useState('');
-  const [status,setStatus]=useState('Carregando fechamento oficial...');
-  const [carregando,setCarregando]=useState(true);
-
-  async function carregar(){
-    setCarregando(true);
-    const {data,error}=await supabase
-      .from('fechamento_comercial_2027')
-      .select('*')
-      .eq('ativo',true)
-      .order('ordem',{ascending:true})
-      .order('serie',{ascending:true});
-    if(error){
-      setLinhas([]);
-      setStatus(`Fechamento Geral ainda não liberado no Supabase • ${error.message}`);
-    }else{
-      setLinhas(data||[]);
-      setStatus('Sincronizado com a Direção em tempo real');
-    }
-    setCarregando(false);
-  }
-
-  useEffect(()=>{
-    carregar();
-    const canal=supabase.channel('fechamento-2027-equipe-live')
-      .on('postgres_changes',{event:'*',schema:'public',table:'fechamento_comercial_2027'},carregar)
-      .subscribe();
-    return()=>supabase.removeChannel(canal);
-  },[]);
-
-  const filtradas=useMemo(()=>{
-    const q=busca.trim().toLowerCase();
-    if(!q)return linhas;
-    return linhas.filter(i=>`${i.serie||''} ${i.modalidade||''} ${i.observacao||''}`.toLowerCase().includes(q));
-  },[linhas,busca]);
-
-  return <section className="panel" style={{marginBottom:18}}>
-    <div className="panelHead">
-      <div>
-        <p className="eyebrow">FECHAMENTO GERAL • MATRÍCULAS 2027</p>
-        <h3>Tabela oficial definida pela Direção</h3>
-        <p>Plano A e Plano B por série e modalidade. Qualquer alteração feita pela Direção aparece aqui automaticamente.</p>
-      </div>
-      <button type="button" onClick={carregar}><RefreshCw size={16}/>Atualizar</button>
-    </div>
-    <div style={{display:'flex',alignItems:'center',gap:10,margin:'12px 0'}}>
-      <div className="search" style={{maxWidth:360,width:'100%'}}><Search size={15}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar série ou modalidade..."/></div>
-      <span style={{fontSize:12,opacity:.75}}>{status}</span>
-    </div>
-    <div className="tableWrap"><table>
-      <thead><tr><th>Série</th><th>Modalidade</th><th>Base 2026</th><th>Reajuste %</th><th>Plano A</th><th>A • até venc.</th><th>A • após venc.</th><th>Plano B</th><th>B • até venc.</th><th>B • após venc.</th><th>Observação</th></tr></thead>
-      <tbody>
-        {!carregando&&!filtradas.length&&<tr><td colSpan="11" style={{padding:24,textAlign:'center'}}>Nenhuma linha disponível. A Direção precisa liberar/preencher o Fechamento Geral no Supabase.</td></tr>}
-        {filtradas.map(i=><tr key={i.id}>
-          <td><strong>{i.serie}</strong></td>
-          <td>{i.modalidade||'Regular'}</td>
-          <td>{money(i.valor_base_2026)}</td>
-          <td>{Number(i.reajuste_percentual||0).toLocaleString('pt-BR',{maximumFractionDigits:3})}%</td>
-          <td><strong>{i.plano_a_parcelas}x</strong></td>
-          <td><strong>{money(i.plano_a_ate_vencimento)}</strong></td>
-          <td>{money(i.plano_a_apos_vencimento)}</td>
-          <td><strong>{i.plano_b_parcelas}x</strong></td>
-          <td><strong>{money(i.plano_b_ate_vencimento)}</strong></td>
-          <td>{money(i.plano_b_apos_vencimento)}</td>
-          <td>{i.observacao||'—'}</td>
-        </tr>)}
-      </tbody>
-    </table></div>
-  </section>
+  const [cfg,setCfg]=useState(null),[status,setStatus]=useState('Carregando mensalidades oficiais...');
+  async function carregar(){const {data,error}=await supabase.from('mensalidades_config_2027').select('*').eq('id',1).maybeSingle();if(error){setCfg(null);setStatus(`Mensalidades ainda não liberadas • ${error.message}`);return}setCfg(data||null);setStatus('Sincronizado com a Direção em tempo real')}
+  useEffect(()=>{carregar();const c=supabase.channel('mensalidades-equipe-live').on('postgres_changes',{event:'*',schema:'public',table:'mensalidades_config_2027'},carregar).subscribe();return()=>supabase.removeChannel(c)},[]);
+  const calc=useMemo(()=>!cfg?null:{aAte:pct(cfg.plano_a_ate_vencimento,cfg.valor_2026_ate_vencimento),aApos:pct(cfg.plano_a_apos_vencimento,cfg.valor_2026_apos_vencimento),bAte:pct(cfg.plano_b_ate_vencimento,cfg.valor_2026_ate_vencimento),bApos:pct(cfg.plano_b_apos_vencimento,cfg.valor_2026_apos_vencimento),anualAAte:num(cfg.plano_a_parcelas)*num(cfg.plano_a_ate_vencimento),anualAApos:num(cfg.plano_a_parcelas)*num(cfg.plano_a_apos_vencimento),anualBAte:num(cfg.plano_b_parcelas)*num(cfg.plano_b_ate_vencimento),anualBApos:num(cfg.plano_b_parcelas)*num(cfg.plano_b_apos_vencimento),desc26:desconto(cfg.valor_2026_apos_vencimento,cfg.valor_2026_ate_vencimento)},[cfg]);
+  return <section className="panel" style={{marginBottom:18}}><div className="panelHead"><div><p className="eyebrow">MENSALIDADES OFICIAIS • 2027</p><h3>Infantil I ao 5º ano</h3><p>Somente leitura. Tudo que a Direção salvar aparece aqui automaticamente.</p></div><button type="button" onClick={carregar}><RefreshCw size={16}/>Atualizar</button></div><p style={{fontSize:12,opacity:.75}}>{status}</p>{cfg&&calc&&<><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:12,margin:'14px 0'}}><article className="panel" style={{padding:14,margin:0}}><small>2026 • até vencimento</small><strong style={{display:'block',fontSize:22}}>{money(cfg.valor_2026_ate_vencimento)}</strong></article><article className="panel" style={{padding:14,margin:0}}><small>2026 • após vencimento</small><strong style={{display:'block',fontSize:22}}>{money(cfg.valor_2026_apos_vencimento)}</strong></article><article className="panel" style={{padding:14,margin:0}}><small>Pontualidade 2026</small><strong style={{display:'block',fontSize:22}}>{calc.desc26.toFixed(2)}%</strong></article></div><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:14}}><article className="panel" style={{padding:16,margin:0}}><p className="eyebrow">PLANO A • {cfg.plano_a_parcelas}x</p><h3>{money(cfg.plano_a_ate_vencimento)} até vencimento</h3><p>{money(cfg.plano_a_apos_vencimento)} após vencimento</p><small>Anuidade: {money(calc.anualAAte)} até / {money(calc.anualAApos)} após</small><p style={{fontSize:12}}>Reajuste: +{calc.aAte.toFixed(2)}% até • +{calc.aApos.toFixed(2)}% após</p></article><article className="panel" style={{padding:16,margin:0}}><p className="eyebrow">PLANO B • {cfg.plano_b_parcelas}x</p><h3>{money(cfg.plano_b_ate_vencimento)} até vencimento</h3><p>{money(cfg.plano_b_apos_vencimento)} após vencimento</p><small>Anuidade: {money(calc.anualBAte)} até / {money(calc.anualBApos)} após</small><p style={{fontSize:12}}>Reajuste: +{calc.bAte.toFixed(2)}% até • +{calc.bApos.toFixed(2)}% após</p></article></div>{cfg.observacao&&<p style={{marginTop:12}}><b>Observação:</b> {cfg.observacao}</p>}</>}</section>
 }
