@@ -1,6 +1,16 @@
 -- MAJESTIC 2027 — CORREÇÃO FINAL E AUTOCONTIDA DE MENSALIDADES
--- Seguro para executar mesmo se mensalidades_config_2027 ainda não existir.
+-- Seguro para executar mesmo se mensalidades_config_2027 ou colunas comerciais ainda não existirem.
 -- NÃO apaga produtos, histórico, atendimentos ou valores complementares.
+
+-- 0) Compatibiliza a tabela produtos_comerciais com a estrutura usada pelo app.
+-- O banco atual foi criado com a versão enxuta, então estas colunas podem não existir.
+alter table public.produtos_comerciais
+  add column if not exists plano text,
+  add column if not exists primeira_parcela_2026 numeric(12,2),
+  add column if not exists primeira_parcela_2027 numeric(12,2),
+  add column if not exists quantidade_parcelas integer,
+  add column if not exists valor_parcela_2026 numeric(12,2),
+  add column if not exists valor_parcela_2027 numeric(12,2);
 
 -- 1) Garante a tabela principal de mensalidades sem DROP.
 create table if not exists public.mensalidades_config_2027 (
@@ -137,7 +147,7 @@ select id,aplicacao,valor_2026_ate_vencimento,valor_2026_apos_vencimento,
        plano_b_parcelas,plano_b_ate_vencimento,plano_b_apos_vencimento
 from public.mensalidades_config_2027 where id=1;
 
-select id,produto,valor_2026,reajuste_percentual,valor_2027,ativo
+select id,produto,plano,valor_2026,reajuste_percentual,valor_2027,quantidade_parcelas,ativo
 from public.produtos_comerciais
 where id in ('mensalidade-plano-a','mensalidade-plano-b')
 order by id;
