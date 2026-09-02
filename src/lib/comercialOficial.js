@@ -54,7 +54,7 @@ export function produtoParaDb(p){
   };
 }
 
-export async function carregarCatalogoOficial({somenteAtivos=true}={}){
+async function carregarProdutosOficiais({somenteAtivos=true}={}){
   let q=supabase.from('produtos_comerciais').select('*').order('categoria').order('produto');
   if(somenteAtivos)q=q.eq('ativo',true);
   const {data,error}=await q;
@@ -67,14 +67,14 @@ export async function carregarMensalidadesOficiais(){
   if(error)throw error;
   if(!data)return [];
   const series=['Infantil I','Infantil II','Infantil III','Infantil IV','Infantil V','1º ano','2º ano','3º ano','4º ano','5º ano'];
-  const baseApos=Number(data.valor_2026_apos_vencimento||0);
+  const baseAte=Number(data.valor_2026_ate_vencimento||0);
   const mk=(plano,parcelas,ate,apos)=>({
     id:`mensalidade-${plano.toLowerCase().replace(' ','-')}`,
     categoria:'Mensalidade',
-    produto:`${plano} • ${Number(parcelas||0)}x • até o vencimento`,
+    produto:`${plano} • ${Number(parcelas||0)}x`,
     plano,
-    valor2026:Number(data.valor_2026_ate_vencimento||0),
-    reajuste:baseApos?((Number(ate||0)-Number(data.valor_2026_ate_vencimento||0))/Number(data.valor_2026_ate_vencimento||1))*100:0,
+    valor2026:baseAte,
+    reajuste:baseAte?((Number(ate||0)-baseAte)/baseAte)*100:0,
     valor2027:Number(ate||0),
     valorAposVencimento:Number(apos||0),
     anuidadeAte:Number(parcelas||0)*Number(ate||0),
@@ -85,7 +85,7 @@ export async function carregarMensalidadesOficiais(){
     ativo:true,
     serieAplicavel:series,
     turmaAplicavel:[],
-    observacao:`Após o vencimento: ${Number(apos||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}. Aplicável do Infantil I ao 5º ano.`
+    observacao:`Até o vencimento: ${Number(ate||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} • Após o vencimento: ${Number(apos||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} • Aplicável do Infantil I ao 5º ano.`
   });
   return [
     mk('Plano A',data.plano_a_parcelas,data.plano_a_ate_vencimento,data.plano_a_apos_vencimento),
@@ -93,9 +93,16 @@ export async function carregarMensalidadesOficiais(){
   ];
 }
 
-export async function carregarCatalogoAtendimento(){
-  const [produtos,mensalidades]=await Promise.all([carregarCatalogoOficial(),carregarMensalidadesOficiais().catch(()=>[])]);
+export async function carregarCatalogoOficial({somenteAtivos=true}={}){
+  const [produtos,mensalidades]=await Promise.all([
+    carregarProdutosOficiais({somenteAtivos}),
+    carregarMensalidadesOficiais().catch(()=>[])
+  ]);
   return [...mensalidades,...produtos.filter(p=>p.categoria!=='Mensalidade')];
+}
+
+export async function carregarCatalogoAtendimento(){
+  return carregarCatalogoOficial({somenteAtivos:true});
 }
 
 export async function upsertProdutoOficial(p){
@@ -111,5 +118,5 @@ export async function desativarProdutoOficial(id){
 }
 
 export function fallbackCatalogo(){
-  return BASE_COMERCIAL_2026.map(p=>({...p,plano:'',primeiraParcela2026:'',primeiraParcela2027:'',quantidadeParcelas:'',valorParcela2026:p.valor2026,valorParcela2027:p.valor2027,serieAplicavel:[],turmaAplicavel:[],periodicidade:'avulso',obrigatorio:false,ativo:true}));
+  return BASE_COMERCIAL_2026.filter(p=>p.categoria!=='Mensalidade').map(p=>({...p,plano:'',primeiraParcela2026:'',primeiraParcela2027:'',quantidadeParcelas:'',valorParcela2026:p.valor2026,valorParcela2027:p.valor2027,serieAplicavel:[],turmaAplicavel:[],periodicidade:'avulso',obrigatorio:false,ativo:true}));
 }
