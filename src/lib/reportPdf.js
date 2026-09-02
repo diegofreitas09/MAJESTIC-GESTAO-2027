@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import majesticLogo from '../../majestic-logo.png';
+import { supabase } from './supabase';
 
 const money = value => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value||0));
 const txt = (...v) => v.find(x=>x!==undefined&&x!==null&&String(x).trim()!=='') ?? '';
@@ -12,6 +13,24 @@ async function carregarLogo(){
     const blob=await r.blob();
     return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob)});
   }catch{return null}
+}
+
+async function carregarTabelaComercialCompleta(){
+  const [prodR,mensR]=await Promise.all([
+    supabase.from('produtos_comerciais').select('*').eq('ativo',true).order('categoria').order('produto'),
+    supabase.from('mensalidades_config_2027').select('*').eq('id',1).maybeSingle()
+  ]);
+  const produtos=(prodR.data||[]).filter(p=>p.categoria!=='Mensalidade').map(p=>({
+    produto:p.produto,categoria:p.categoria,valor2026:Number(p.valor_2026||0),reajuste:Number(p.reajuste_percentual||0),valor2027:Number(p.valor_2027||0),observacao:p.observacao||''
+  }));
+  const m=mensR.data;
+  const mensalidades=[];
+  if(m){
+    const pct=(n,b)=>Number(b)?((Number(n)-Number(b))/Number(b))*100:0;
+    mensalidades.push({produto:`Plano A • ${m.plano_a_parcelas}x • até o vencimento`,categoria:'Mensalidade',valor2026:Number(m.valor_2026_ate_vencimento||0),reajuste:pct(m.plano_a_ate_vencimento,m.valor_2026_ate_vencimento),valor2027:Number(m.plano_a_ate_vencimento||0),observacao:`Após o vencimento: ${money(m.plano_a_apos_vencimento)} • Anuidade até venc.: ${money(Number(m.plano_a_parcelas||0)*Number(m.plano_a_ate_vencimento||0))}`});
+    mensalidades.push({produto:`Plano B • ${m.plano_b_parcelas}x • até o vencimento`,categoria:'Mensalidade',valor2026:Number(m.valor_2026_ate_vencimento||0),reajuste:pct(m.plano_b_ate_vencimento,m.valor_2026_ate_vencimento),valor2027:Number(m.plano_b_ate_vencimento||0),observacao:`Após o vencimento: ${money(m.plano_b_apos_vencimento)} • Anuidade até venc.: ${money(Number(m.plano_b_parcelas||0)*Number(m.plano_b_ate_vencimento||0))}`});
+  }
+  return [...mensalidades,...produtos];
 }
 
 function resumoOrigens(interessados=[],matriculas=[]){
@@ -29,21 +48,16 @@ function resumoAtendentes(atendimentos=[]){
   atendimentos.forEach(a=>{
     const nome=txt(a.atendente_nome,a.funcionario_nome,a.atendente,'Não informado');
     if(!mapa[nome])mapa[nome]={atendimentos:0,concluidos:0,familias:new Set(),matriculados:new Set()};
-    const item=mapa[nome];
-    item.atendimentos++;
-    if(a.status==='concluido')item.concluidos++;
+    const item=mapa[nome];item.atendimentos++;if(a.status==='concluido')item.concluidos++;
     const familia=txt(a.cliente_id,a.nome_aluno,a.aluno,a.nome_responsavel,a.responsavel);
-    if(familia)item.familias.add(String(familia));
-    if(a.matriculado===true&&familia)item.matriculados.add(String(familia));
+    if(familia)item.familias.add(String(familia));if(a.matriculado===true&&familia)item.matriculados.add(String(familia));
   });
-  return Object.entries(mapa).map(([nome,d])=>{
-    const familias=d.familias.size;
-    const matriculas=d.matriculados.size;
-    return [nome,d.atendimentos,d.concluidos,familias,matriculas,`${(familias?matriculas/familias*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`];
-  }).sort((a,b)=>b[4]-a[4]||b[1]-a[1]||String(a[0]).localeCompare(String(b[0]),'pt-BR'));
+  return Object.entries(mapa).map(([nome,d])=>{const familias=d.familias.size,matriculas=d.matriculados.size;return [nome,d.atendimentos,d.concluidos,familias,matriculas,`${(familias?matriculas/familias*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})}%`]}).sort((a,b)=>b[4]-a[4]||b[1]-a[1]||String(a[0]).localeCompare(String(b[0]),'pt-BR'));
 }
 
 export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo={},funil=[],interessados=[],atendimentos=[],matriculas=[],produtosSupabase=[],produtosComerciais=[],perguntas=[]}={}){
+  const tabelaLive=await carregarTabelaComercialCompleta().catch(()=>[]);
+  if(tabelaLive.length)produtosComerciais=tabelaLive;
   const doc=new jsPDF({unit:'mm',format:'a4'}), agora=new Date(), logo=await carregarLogo();
   if(logo){try{doc.addImage(logo,'PNG',14,8,55,24,undefined,'FAST')}catch{}}
   doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(16,42,86);doc.text('RELATÓRIO EXECUTIVO • MAJESTIC GESTÃO 2027',logo?76:14,17);
@@ -57,7 +71,7 @@ export async function gerarRelatorioExecutivoPDF({periodo='Campanha 2027',resumo
   sec('Procuras e interessados',['Aluno','Responsável','Telefone','Série','Como conheceu?','Etapa'],interessados.map(i=>[txt(i.nome_aluno,i.aluno,i.nome),txt(i.nome_responsavel,i.responsavel),txt(i.telefone),txt(i.serie,i.turma),txt(i.origem,'Não informado'),txt(i.etapa,i.status,i.status_funil)]),{fontSize:6.3});
   sec('Atendimentos',['Data / hora','Responsável','Aluno','Série','Como conheceu?','Atendente','Resultado'],atendimentos.map(a=>[txt(a.iniciado_at,a.data,a.created_at),txt(a.responsavel,a.nome_responsavel),txt(a.aluno,a.nome_aluno),txt(a.serie,a.turma),txt(a.origem,'Não informado'),txt(a.atendente_nome,a.funcionario_nome,a.atendente),txt(a.etapa,a.resultado,a.status)]),{fontSize:6.1});
   sec('Matrículas 2027',['Aluno','Responsável','Série/Turma','Como conheceu?','Plano','Status'],matriculas.map(m=>[txt(m.nome_aluno,m.aluno,m.nome),txt(m.nome_responsavel,m.responsavel),txt(m.serie,m.turma,m.segmento),txt(m.origem,'Não informado'),txt(m.plano,m.modalidade),txt(m.status,m.situacao,'MATRICULADO')]),{fontSize:6.4});
-  sec('Tabela comercial — comparação 2026 x 2027',['Produto / Plano','Categoria','2026','Reajuste','2027','Observação'],produtosComerciais.map(p=>[txt(p.produto,p.nome),txt(p.categoria,p.segmento),money(p.valor2026),`${Number(p.reajuste||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`,money(p.valor2027),txt(p.observacao)]),{fontSize:6.4});
+  sec('Tabela comercial completa — 2026 x 2027',['Produto / Plano','Categoria','2026','Reajuste','2027','Observação'],produtosComerciais.map(p=>[txt(p.produto,p.nome),txt(p.categoria,p.segmento),money(p.valor2026),`${Number(p.reajuste||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}%`,money(p.valor2027),txt(p.observacao)]),{fontSize:6.2});
   sec('Produtos cadastrados no Supabase',['Produto','Segmento','Valor','Vigência','Status'],produtosSupabase.map(p=>[txt(p.nome,p.produto),txt(p.segmento,p.categoria),money(txt(p.valor,p.valor2027)),txt(p.vigencia),p.publicado===true?'Publicado':txt(p.status,'Interno')]),{fontSize:6.8});
   sec('Central da Direção',['Status','Pergunta','Resposta / orientação'],perguntas.map(p=>[txt(p.status),txt(p.pergunta),txt(p.resposta,'Aguardando resposta')]),{fontSize:6.8});
   const pages=doc.internal.getNumberOfPages();for(let i=1;i<=pages;i++){doc.setPage(i);doc.setDrawColor(225);doc.line(14,285,196,285);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(90);doc.text(`Berçário e Creche Escola Majestic • Gestão 2027 • Página ${i} de ${pages}`,14,290)}
