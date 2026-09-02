@@ -62,6 +62,42 @@ export async function carregarCatalogoOficial({somenteAtivos=true}={}){
   return (data||[]).map(normalizarProdutoDb);
 }
 
+export async function carregarMensalidadesOficiais(){
+  const {data,error}=await supabase.from('mensalidades_config_2027').select('*').eq('id',1).maybeSingle();
+  if(error)throw error;
+  if(!data)return [];
+  const series=['Infantil I','Infantil II','Infantil III','Infantil IV','Infantil V','1º ano','2º ano','3º ano','4º ano','5º ano'];
+  const baseApos=Number(data.valor_2026_apos_vencimento||0);
+  const mk=(plano,parcelas,ate,apos)=>({
+    id:`mensalidade-${plano.toLowerCase().replace(' ','-')}`,
+    categoria:'Mensalidade',
+    produto:`${plano} • ${Number(parcelas||0)}x • até o vencimento`,
+    plano,
+    valor2026:Number(data.valor_2026_ate_vencimento||0),
+    reajuste:baseApos?((Number(ate||0)-Number(data.valor_2026_ate_vencimento||0))/Number(data.valor_2026_ate_vencimento||1))*100:0,
+    valor2027:Number(ate||0),
+    valorAposVencimento:Number(apos||0),
+    anuidadeAte:Number(parcelas||0)*Number(ate||0),
+    anuidadeApos:Number(parcelas||0)*Number(apos||0),
+    quantidadeParcelas:Number(parcelas||0),
+    periodicidade:'mensal',
+    obrigatorio:true,
+    ativo:true,
+    serieAplicavel:series,
+    turmaAplicavel:[],
+    observacao:`Após o vencimento: ${Number(apos||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}. Aplicável do Infantil I ao 5º ano.`
+  });
+  return [
+    mk('Plano A',data.plano_a_parcelas,data.plano_a_ate_vencimento,data.plano_a_apos_vencimento),
+    mk('Plano B',data.plano_b_parcelas,data.plano_b_ate_vencimento,data.plano_b_apos_vencimento)
+  ];
+}
+
+export async function carregarCatalogoAtendimento(){
+  const [produtos,mensalidades]=await Promise.all([carregarCatalogoOficial(),carregarMensalidadesOficiais().catch(()=>[])]);
+  return [...mensalidades,...produtos.filter(p=>p.categoria!=='Mensalidade')];
+}
+
 export async function upsertProdutoOficial(p){
   const payload=produtoParaDb(p);
   const {data,error}=await supabase.from('produtos_comerciais').upsert(payload,{onConflict:'id'}).select().single();
