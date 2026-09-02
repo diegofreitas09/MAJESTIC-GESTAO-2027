@@ -15,6 +15,7 @@ export function normalizarProdutoDb(p){
     quantidadeParcelas:p.quantidade_parcelas==null?'':Number(p.quantidade_parcelas),
     valorParcela2026:p.valor_parcela_2026==null?'':Number(p.valor_parcela_2026),
     valorParcela2027:p.valor_parcela_2027==null?'':Number(p.valor_parcela_2027),
+    valorAposVencimento:p.valor_apos_vencimento==null?null:Number(p.valor_apos_vencimento),
     observacao:p.observacao||'',
     serieAplicavel:Array.isArray(p.serie_aplicavel)?p.serie_aplicavel:[],
     turmaAplicavel:Array.isArray(p.turma_aplicavel)?p.turma_aplicavel:[],
@@ -94,11 +95,14 @@ export async function carregarMensalidadesOficiais(){
 }
 
 export async function carregarCatalogoOficial({somenteAtivos=true}={}){
-  const [produtos,mensalidades]=await Promise.all([
-    carregarProdutosOficiais({somenteAtivos}),
-    carregarMensalidadesOficiais().catch(()=>[])
-  ]);
-  return [...mensalidades,...produtos.filter(p=>p.categoria!=='Mensalidade')];
+  const produtos=await carregarProdutosOficiais({somenteAtivos});
+  let mensalidades=[];
+  try{mensalidades=await carregarMensalidadesOficiais()}catch{mensalidades=[]}
+  if(!mensalidades.length){
+    mensalidades=produtos.filter(p=>['mensalidade-plano-a','mensalidade-plano-b'].includes(String(p.id)));
+  }
+  const complementares=produtos.filter(p=>p.categoria!=='Mensalidade');
+  return [...mensalidades,...complementares];
 }
 
 export async function carregarCatalogoAtendimento(){
