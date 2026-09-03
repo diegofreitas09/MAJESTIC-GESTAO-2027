@@ -19,8 +19,8 @@ jobs:
       - name: Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Instalar dependências exatas
+          node-version: '24'
+      - name: Instalar dependências
         run: npm install --no-fund
       - name: Auditoria de dependências
         run: npm audit --audit-level=high
