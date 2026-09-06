@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import AuthGate from './AuthGate.jsx';
 import AppErrorBoundary from './AppErrorBoundary.jsx';
+import PdfSolucaoCredit from './PdfSolucaoCredit.jsx';
 import { supabase } from './lib/supabase';
 import './styles.css';
 import './gestao-sucesso-catalogo.css';
@@ -84,5 +85,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {()=> <App/>}
       </AuthGate>
     </AppErrorBoundary>
+    <PdfSolucaoCredit />
   </React.StrictMode>,
 );
