@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import EquipeApp from './EquipeApp.jsx';
 import AuthGate from './AuthGate.jsx';
 import AppErrorBoundary from './AppErrorBoundary.jsx';
+import PdfSolucaoCredit from './PdfSolucaoCredit.jsx';
 import './styles.css';
 import './gestao-sucesso-catalogo.css';
 import './equipe-app.css';
@@ -33,11 +34,14 @@ async function iniciar(){
   await limparPwaLegado();
 
   ReactDOM.createRoot(document.getElementById('root')).render(
-    <AppErrorBoundary>
-      <AuthGate appName="Majestic Atendimento 2027" allowedRoles={['gestao','matricula']}>
-        {({profile,logout})=> <EquipeApp profile={profile} logout={logout}/>} 
-      </AuthGate>
-    </AppErrorBoundary>,
+    <>
+      <AppErrorBoundary>
+        <AuthGate appName="Majestic Atendimento 2027" allowedRoles={['gestao','matricula']}>
+          {({profile,logout})=> <EquipeApp profile={profile} logout={logout}/>} 
+        </AuthGate>
+      </AppErrorBoundary>
+      <PdfSolucaoCredit />
+    </>,
   );
 }
 
