@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "deploy:cloudflare": "test -n \"$MAJESTIC_APPS_SCRIPT_URL\" && test -n \"$MAJESTIC_SYNC_TOKEN\" && printf '%s' \"$MAJESTIC_SYNC_TOKEN\" | npx wrangler secret put MAJESTIC_SYNC_TOKEN && npx wrangler deploy --var MAJESTIC_APPS_SCRIPT_URL:$MAJESTIC_APPS_SCRIPT_URL --keep-vars",
     "security:audit": "npm audit --audit-level=high"
   },
   "dependencies": {
