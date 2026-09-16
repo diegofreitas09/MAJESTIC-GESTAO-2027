@@ -1,0 +1,3 @@
+Trigger seguro de nova construção Cloudflare para validar o proxy Google Sheets.
+Data: 2026-09-16
+Nenhuma alteração funcional no aplicativo.
