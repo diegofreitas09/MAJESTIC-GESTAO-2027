@@ -21,6 +21,9 @@ DESENVOLVEDOR
 → Netlify
 → produção
 
+Integração externa adicional detectada:
+GitHub → Cloudflare Workers build check. Não há configuração Cloudflare no repositório; o check está falhando e a integração precisa ser revisada no provedor.
+
 ## Baseline conhecido
 
 - Branch: `main`
