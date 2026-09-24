@@ -1,0 +1,33 @@
+name: Smoke & Security Monitor
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-smoke:
+    name: Production smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Homepage and security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://majestic-gestao-2027.netlify.app/"
+          curl -fsS --retry 3 --retry-all-errors --max-time 20             -D /tmp/headers.txt -o /tmp/home.html "$URL"
+
+          grep -Eqi '<!doctype html|<html' /tmp/home.html
+          grep -Eqi '^content-security-policy:' /tmp/headers.txt
+          grep -Eqi '^x-content-type-options:[[:space:]]*nosniff' /tmp/headers.txt
+          grep -Eqi '^x-frame-options:[[:space:]]*DENY' /tmp/headers.txt
+          grep -Eqi '^referrer-policy:' /tmp/headers.txt
+          grep -Eqi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/headers.txt
+
+          echo "Production homepage and required security headers: PASS"
