@@ -53,3 +53,8 @@ revoke all on function public.tg_mensalidades_config_2027() from public, anon, a
 -- 4) financial_integrity_guardrails
 -- Os três CHECKs foram aplicados e validados em produção.
 -- Consulte CHANGELOG_SECURITY.md e SECURITY_AUDIT_REPORT.md para evidências.
+
+-- 5) security_harden_majestic_table_view_grants
+-- Aplicada em produção: anon sem acesso direto aos objetos Majestic;
+-- authenticated sem TRUNCATE, REFERENCES ou TRIGGER.
+-- DML continua condicionado por RLS/policies.
