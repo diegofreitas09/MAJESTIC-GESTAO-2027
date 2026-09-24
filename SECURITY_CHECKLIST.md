@@ -1,0 +1,24 @@
+# Security Checklist — 2026-09-24
+
+- [x] baseline Git/Netlify registrado
+- [x] RLS inventariado
+- [x] SECURITY DEFINER views corrigidas
+- [x] ponte RPC Google retirada de anon/authenticated
+- [x] funções internas Majestic retiradas de execução pública
+- [x] constraints financeiros básicos aplicados
+- [x] snapshot de Sheets criado
+- [x] restore de Sheets em cópia validado
+- [x] CI atual: npm audit + build
+- [ ] lockfile versionado
+- [ ] SAST no CI
+- [ ] secret scan verificável no CI
+- [ ] unit/integration/E2E
+- [ ] smoke test pós-deploy
+- [ ] branch protection verificada/configurada
+- [ ] Apps Script corrigido publicado e retestado
+- [ ] transação/idempotência da ponte endurecida
+- [ ] protected ranges verificados
+- [ ] backup independente
+- [ ] restore completo Supabase
+- [ ] rollback Netlify testado
+- [ ] leaked-password protection revisada/ativada
