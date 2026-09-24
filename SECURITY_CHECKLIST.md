@@ -10,10 +10,10 @@
 - [x] restore de Sheets em cópia validado
 - [x] CI atual: npm audit + build
 - [ ] lockfile versionado
-- [ ] SAST no CI
+- [x] SAST CodeQL configurado e primeira execução concluída
 - [ ] secret scan verificável no CI
 - [ ] unit/integration/E2E
-- [ ] smoke test pós-deploy
+- [x] monitor de smoke/headers criado; primeira execução do novo workflow pendente
 - [ ] branch protection verificada/configurada
 - [ ] Apps Script corrigido publicado e retestado
 - [ ] transação/idempotência da ponte endurecida
@@ -22,3 +22,12 @@
 - [ ] restore completo Supabase
 - [ ] rollback Netlify testado
 - [ ] leaked-password protection revisada/ativada
+
+- [x] anon removido de tabelas/views Majestic
+- [x] privilégios SQL administrativos removidos de authenticated
+- [x] 2 auth_uid ausentes corrigidos de forma não ambígua no espelho
+- [ ] par duplicado em FUNCIONARIOS_ACESSOS reconciliado
+- [ ] 1 produto obsoleto/extra da planilha reconciliado
+- [ ] 205 eventos de auditoria ausentes no espelho reconciliados
+- [ ] token da ponte Apps Script rotacionado com força adequada
+- [ ] integração Cloudflare Workers revisada/removida se órfã
